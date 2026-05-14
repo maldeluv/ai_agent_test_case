@@ -7,6 +7,7 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
+from app.agent.loop import MainAgentLoop
 from app.browser.session import BrowserSession
 from app.config import get_settings
 from app.tools import create_default_tool_registry
@@ -43,9 +44,27 @@ async def run_cli(task: str, wait_for_exit: bool) -> None:
             )
         )
         console.print(f"[bold]You:[/bold] {task}")
-        console.print(
-            "[dim]Base browser tools are registered; Claude is not connected in this stage.[/dim]"
-        )
+
+        if settings.anthropic_api_key is None:
+            console.print(
+                "[yellow]ANTHROPIC_API_KEY is not configured. "
+                "Browser started, but the agent loop was not run.[/yellow]"
+            )
+        else:
+            agent = MainAgentLoop(
+                settings=settings,
+                browser=browser,
+                registry=tool_registry,
+                console=console,
+            )
+            result = await agent.run(task)
+            console.print(
+                Panel.fit(
+                    f"{result.summary}\n\nStatus: {result.status}\nSteps: {result.steps_used}",
+                    title="Final Report",
+                    border_style="green" if result.status == "success" else "yellow",
+                )
+            )
 
         if wait_for_exit:
             try:

@@ -94,3 +94,18 @@ class TypeTextInput(ClickElementInput):
 class ScrollPageInput(StrictBaseModel):
     direction: Literal["up", "down"]
     amount: int = Field(default=800, gt=0, le=10000)
+
+
+class QueryDomInput(StrictBaseModel):
+    query: str = Field(min_length=1)
+
+
+class FinishTaskInput(StrictBaseModel):
+    status: Literal[
+        "success",
+        "partial_success",
+        "failed",
+        "blocked",
+        "need_user_input",
+    ]
+    summary: str = Field(min_length=1)

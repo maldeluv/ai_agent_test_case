@@ -28,6 +28,8 @@ async def test_default_registry_contains_base_tools() -> None:
         "click_element",
         "type_text",
         "scroll_page",
+        "query_dom",
+        "finish_task",
     }
 
 
@@ -82,3 +84,17 @@ async def test_handler_exception_is_wrapped() -> None:
     assert result.ok is False
     assert result.error_code == "tool_exception"
     assert result.data["exception_type"] == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_finish_task_returns_structured_success() -> None:
+    registry = create_default_tool_registry()
+
+    result = await registry.execute(
+        "finish_task",
+        {"status": "success", "summary": "Done"},
+        ToolContext(browser=FakeBrowser()),  # type: ignore[arg-type]
+    )
+
+    assert result.ok is True
+    assert result.data == {"status": "success", "summary": "Done"}

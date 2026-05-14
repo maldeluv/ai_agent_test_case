@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from app.tools.registry import ToolContext
-from app.tools.schemas import TakeScreenshotInput, ToolResult, WaitInput
+from app.tools.schemas import FinishTaskInput, TakeScreenshotInput, ToolResult, WaitInput
 
 
 async def wait(input_data: BaseModel, context: ToolContext) -> ToolResult:
@@ -56,3 +56,15 @@ async def take_screenshot(input_data: BaseModel, context: ToolContext) -> ToolRe
             data={"exception_type": type(exc).__name__},
             next_hint="Check browser session and screenshots directory permissions.",
         )
+
+
+async def finish_task(input_data: BaseModel, _: ToolContext) -> ToolResult:
+    args = FinishTaskInput.model_validate(input_data)
+    return ToolResult.success(
+        tool_name="finish_task",
+        message="Task finished",
+        data={
+            "status": args.status,
+            "summary": args.summary,
+        },
+    )

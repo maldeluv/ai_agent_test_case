@@ -91,14 +91,17 @@ class ToolRegistry:
 
 
 def create_default_tool_registry() -> ToolRegistry:
-    from app.tools.control import take_screenshot, wait
+    from app.tools.control import finish_task, take_screenshot, wait
+    from app.tools.dom_query import query_dom
     from app.tools.interactions import click_element, scroll_page, type_text
     from app.tools.navigation import navigate_to_url
     from app.tools.observations import get_current_page_info
     from app.tools.schemas import (
         ClickElementInput,
         EmptyInput,
+        FinishTaskInput,
         NavigateToUrlInput,
+        QueryDomInput,
         ScrollPageInput,
         TakeScreenshotInput,
         TypeTextInput,
@@ -147,5 +150,23 @@ def create_default_tool_registry() -> ToolRegistry:
         description="Scroll the active page up or down by a pixel amount.",
         input_model=ScrollPageInput,
         handler=scroll_page,
+    )
+    registry.register(
+        name="query_dom",
+        description=(
+            "Placeholder for compact DOM querying. In this stage it is not "
+            "implemented and returns a structured not_implemented result."
+        ),
+        input_model=QueryDomInput,
+        handler=query_dom,
+    )
+    registry.register(
+        name="finish_task",
+        description=(
+            "Finish the current task with a status and concise summary. "
+            "Use this when the objective is complete, blocked, failed, or needs user input."
+        ),
+        input_model=FinishTaskInput,
+        handler=finish_task,
     )
     return registry
