@@ -9,6 +9,7 @@ description = "CLI skeleton for an autonomous browser AI agent."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "playwright>=1.45,<2.0",
     "pydantic>=2.7,<3.0",
     "pydantic-settings>=2.2,<3.0",
     "rich>=13.7,<14.0",

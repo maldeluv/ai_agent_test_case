@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +22,16 @@ class Settings(BaseSettings):
     max_steps: int = Field(default=30, ge=1)
     browser_profile_dir: Path = PROJECT_ROOT / "browser_profile"
     screenshots_dir: Path = PROJECT_ROOT / "screenshots"
+    viewport_width: int = Field(default=1280, ge=320)
+    viewport_height: int = Field(default=900, ge=240)
+
+    @field_validator("browser_profile_dir", "screenshots_dir")
+    @classmethod
+    def resolve_project_path(cls, value: Path) -> Path:
+        path = Path(value)
+        if path.is_absolute():
+            return path
+        return PROJECT_ROOT / path
 
 
 @lru_cache
