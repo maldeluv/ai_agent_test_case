@@ -9,6 +9,7 @@ from rich.table import Table
 
 from app.browser.session import BrowserSession
 from app.config import get_settings
+from app.tools import create_default_tool_registry
 from app.utils.logger import configure_logging, get_console, get_logger
 
 
@@ -17,6 +18,7 @@ async def run_cli(task: str, wait_for_exit: bool) -> None:
     console = get_console()
     logger = get_logger(__name__)
     browser = BrowserSession(settings)
+    tool_registry = create_default_tool_registry()
 
     try:
         page = await browser.start()
@@ -31,6 +33,7 @@ async def run_cli(task: str, wait_for_exit: bool) -> None:
             f"{settings.viewport_width}x{settings.viewport_height}",
         )
         status.add_row("Page", page.url)
+        status.add_row("Tools", str(len(tool_registry.list_tools())))
 
         console.print(
             Panel(
@@ -40,7 +43,9 @@ async def run_cli(task: str, wait_for_exit: bool) -> None:
             )
         )
         console.print(f"[bold]You:[/bold] {task}")
-        console.print("[dim]LLM agent is not connected in this stage.[/dim]")
+        console.print(
+            "[dim]Base browser tools are registered; Claude is not connected in this stage.[/dim]"
+        )
 
         if wait_for_exit:
             try:
