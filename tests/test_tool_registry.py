@@ -22,6 +22,7 @@ async def test_default_registry_contains_base_tools() -> None:
 
     assert {tool.name for tool in registry.list_tools()} == {
         "navigate_to_url",
+        "go_back",
         "get_current_page_info",
         "wait",
         "take_screenshot",
@@ -29,7 +30,9 @@ async def test_default_registry_contains_base_tools() -> None:
         "click_element",
         "type_text",
         "scroll_page",
+        "scroll_element",
         "query_dom",
+        "extract_visible_items",
         "finish_task",
     }
 

@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
 
 from app.browser.session import BrowserSession
-from app.safety import SafetyGuard
 from app.tools.schemas import ToolResult
+
+if TYPE_CHECKING:
+    from app.safety import SafetyGuard
 
 
 @dataclass
@@ -103,17 +105,20 @@ class ToolRegistry:
 
 def create_default_tool_registry() -> ToolRegistry:
     from app.tools.control import ask_user_confirmation, finish_task, take_screenshot, wait
+    from app.tools.content import extract_visible_items
     from app.tools.dom_query import query_dom
-    from app.tools.interactions import click_element, scroll_page, type_text
-    from app.tools.navigation import navigate_to_url
+    from app.tools.interactions import click_element, scroll_element, scroll_page, type_text
+    from app.tools.navigation import go_back, navigate_to_url
     from app.tools.observations import get_current_page_info
     from app.tools.schemas import (
         AskUserConfirmationInput,
         ClickElementInput,
         EmptyInput,
+        ExtractVisibleItemsInput,
         FinishTaskInput,
         NavigateToUrlInput,
         QueryDomInput,
+        ScrollElementInput,
         ScrollPageInput,
         TakeScreenshotInput,
         TypeTextInput,
@@ -126,6 +131,15 @@ def create_default_tool_registry() -> ToolRegistry:
         description="Navigate the active browser page to an http(s) URL.",
         input_model=NavigateToUrlInput,
         handler=navigate_to_url,
+    )
+    registry.register(
+        name="go_back",
+        description=(
+            "Go back one entry in browser history. Useful after opening an item "
+            "from a list to inspect details and return to the list."
+        ),
+        input_model=EmptyInput,
+        handler=go_back,
     )
     registry.register(
         name="get_current_page_info",
@@ -150,7 +164,9 @@ def create_default_tool_registry() -> ToolRegistry:
         description=(
             "Ask the user for explicit confirmation before a risky external action. "
             "Use this for payments, final order confirmation, deleting emails, "
-            "marking spam, sending applications/messages, or submitting forms."
+            "marking spam, sending applications/messages, or submitting forms. "
+            "When a previous tool result returned safety_confirmation_required, pass "
+            "its approval_id if present."
         ),
         input_model=AskUserConfirmationInput,
         handler=ask_user_confirmation,
@@ -159,7 +175,9 @@ def create_default_tool_registry() -> ToolRegistry:
         name="click_element",
         description=(
             "Click an element found by a CSS selector. Include action_description "
-            "when the click may pay, submit, delete, send, mark spam, or confirm an order."
+            "when the click may pay, submit, delete, send, mark spam, or confirm an order. "
+            "If a normal click is intercepted, retry with position='left'/'right'/'top'/'bottom' "
+            "or strategy='nearest_clickable_ancestor' after inspecting click_diagnostics."
         ),
         input_model=ClickElementInput,
         handler=click_element,
@@ -180,6 +198,15 @@ def create_default_tool_registry() -> ToolRegistry:
         handler=scroll_page,
     )
     registry.register(
+        name="scroll_element",
+        description=(
+            "Scroll a specific visible scroll container by selector. Use this for "
+            "mail inboxes, tables, chat panes, feeds, and other inner scrolling lists."
+        ),
+        input_model=ScrollElementInput,
+        handler=scroll_element,
+    )
+    registry.register(
         name="query_dom",
         description=(
             "Find relevant visible interactive elements on the active page. "
@@ -188,6 +215,18 @@ def create_default_tool_registry() -> ToolRegistry:
         ),
         input_model=QueryDomInput,
         handler=query_dom,
+    )
+    registry.register(
+        name="extract_visible_items",
+        description=(
+            "Extract and semantically analyze visible repeated content items such as "
+            "email rows, table rows, product cards, search results, notifications, "
+            "or list entries. Use this when the task says read, summarize, classify, "
+            "compare, or process items in a visible list. It returns item selectors, "
+            "fields, classifications, confidence, and nearby controls."
+        ),
+        input_model=ExtractVisibleItemsInput,
+        handler=extract_visible_items,
     )
     registry.register(
         name="finish_task",

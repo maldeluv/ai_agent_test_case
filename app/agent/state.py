@@ -94,6 +94,7 @@ Recent actions:
 Context policy:
 - Do not assume hidden browser state beyond this compact state and current tool results.
 - Use query_dom before click_element or type_text when you need selectors.
+- Use extract_visible_items before claiming that a visible list/table/card collection cannot be read.
 - Do not ask for full HTML; only compact observations are available.
 """
         max_chars = (
@@ -102,6 +103,33 @@ Context policy:
             + 1200
         )
         return truncate_text(text, max_chars=max_chars)
+
+    def to_session_debug_context(self, settings: Settings) -> str:
+        failed_actions = [action for action in self.recent_actions if not action.ok]
+        if not failed_actions:
+            return truncate_text(
+                self.execution_summary or "No failed actions recorded.",
+                max_chars=settings.agent_execution_summary_max_chars,
+            )
+
+        failures = "\n".join(
+            (
+                f"- step {action.step}: {action.tool_name} failed; "
+                f"input={action.input_preview}; result={action.result_preview}"
+            )
+            for action in failed_actions[-3:]
+        )
+        text = f"""Execution summary:
+{self.execution_summary or "No summary."}
+
+Recent failed tool details:
+{failures}
+"""
+        return truncate_text(
+            text,
+            max_chars=settings.agent_execution_summary_max_chars
+            + 3 * settings.agent_action_max_chars,
+        )
 
     def _append_summary_line(self, line: str, settings: Settings) -> None:
         summary = f"{self.execution_summary}\n{line}".strip()

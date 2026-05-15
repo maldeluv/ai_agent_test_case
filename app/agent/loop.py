@@ -86,11 +86,12 @@ class MainAgentLoop:
                     tools=tools,
                 )
             except Exception as exc:
-                self._logger.exception("LLM request failed")
+                self._logger.error("LLM request failed: %s", exc)
                 return AgentRunResult(
                     status="failed",
                     summary=f"LLM request failed: {exc}",
                     steps_used=step - 1,
+                    debug_context=state.to_session_debug_context(self.settings),
                 )
 
             assistant_blocks = [
@@ -98,20 +99,24 @@ class MainAgentLoop:
             ]
 
             tool_uses = []
+            assistant_texts = []
             for block in getattr(response, "content", []):
                 block_type = get_block_type(block)
                 if block_type == "text":
                     text = get_block_text(block).strip()
                     if text:
+                        assistant_texts.append(text)
                         self.console.print(f"[bold]Assistant:[/bold] {text}")
                 elif block_type == "tool_use":
                     tool_uses.append(block)
 
             if not tool_uses:
+                summary = "\n".join(assistant_texts).strip()
                 return AgentRunResult(
                     status="need_user_input",
-                    summary="LLM stopped without a tool call or finish_task.",
+                    summary=summary or "LLM stopped without a tool call or finish_task.",
                     steps_used=step,
+                    debug_context=state.to_session_debug_context(self.settings),
                 )
 
             tool_result_blocks = []
@@ -145,6 +150,7 @@ class MainAgentLoop:
                         status=result.data.get("status", "success"),
                         summary=result.data.get("summary", result.message),
                         steps_used=step,
+                        debug_context=state.to_session_debug_context(self.settings),
                     )
                 elif result.ok:
                     consecutive_failures = 0
@@ -160,6 +166,7 @@ class MainAgentLoop:
                             "to refresh page state before retrying."
                         ),
                         steps_used=step,
+                        debug_context=state.to_session_debug_context(self.settings),
                     )
 
             previous_assistant_blocks = assistant_blocks
@@ -178,6 +185,7 @@ class MainAgentLoop:
             status="failed",
             summary=f"Maximum step limit reached: {self.settings.max_steps}",
             steps_used=self.settings.max_steps,
+            debug_context=state.to_session_debug_context(self.settings),
         )
 
     def _build_messages(

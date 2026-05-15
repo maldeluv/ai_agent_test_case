@@ -8,13 +8,44 @@ from rich.panel import Panel
 from rich.table import Table
 
 from app.agent.loop import MainAgentLoop
+from app.agent.schemas import AgentRunResult
 from app.browser.session import BrowserSession
 from app.config import get_settings
 from app.tools import create_default_tool_registry
 from app.utils.logger import configure_logging, get_console, get_logger
 
 
-async def run_cli(task: str, wait_for_exit: bool) -> None:
+def compose_session_task(
+    *,
+    current_message: str,
+    session_history: list[tuple[str, AgentRunResult]],
+) -> str:
+    if not session_history:
+        return current_message
+
+    history_lines = []
+    for index, (user_message, result) in enumerate(session_history[-5:], start=1):
+        history_lines.append(
+            (
+                f"{index}. User asked: {user_message}\n"
+                f"   Agent status: {result.status}; summary: {result.summary}"
+            )
+        )
+        if result.debug_context:
+            history_lines.append(f"   Debug context: {result.debug_context}")
+
+    return (
+        "This is a continuation in the same open browser session.\n"
+        "Use the current browser state as the source of truth. The user may be "
+        "refining, correcting, approving, or extending the previous task.\n\n"
+        "Recent session history:\n"
+        f"{chr(10).join(history_lines)}\n\n"
+        "Current user message:\n"
+        f"{current_message}"
+    )
+
+
+async def run_cli(task: str, wait_for_exit: bool, interactive: bool) -> None:
     settings = get_settings()
     console = get_console()
     logger = get_logger(__name__)
@@ -43,7 +74,6 @@ async def run_cli(task: str, wait_for_exit: bool) -> None:
                 border_style="green",
             )
         )
-        console.print(f"[bold]You:[/bold] {task}")
 
         if not settings.has_active_llm_api_key():
             console.print(
@@ -51,22 +81,45 @@ async def run_cli(task: str, wait_for_exit: bool) -> None:
                 "Browser started, but the agent loop was not run.[/yellow]"
             )
         else:
-            agent = MainAgentLoop(
-                settings=settings,
-                browser=browser,
-                registry=tool_registry,
-                console=console,
-            )
-            result = await agent.run(task)
-            console.print(
-                Panel.fit(
-                    f"{result.summary}\n\nStatus: {result.status}\nSteps: {result.steps_used}",
-                    title="Final Report",
-                    border_style="green" if result.status == "success" else "yellow",
+            current_message: str | None = task
+            session_history: list[tuple[str, AgentRunResult]] = []
+            while current_message:
+                console.print(f"[bold]You:[/bold] {current_message}")
+                agent = MainAgentLoop(
+                    settings=settings,
+                    browser=browser,
+                    registry=tool_registry,
+                    console=console,
                 )
-            )
+                effective_task = compose_session_task(
+                    current_message=current_message,
+                    session_history=session_history,
+                )
+                result = await agent.run(effective_task)
+                session_history.append((current_message, result))
+                console.print(
+                    Panel.fit(
+                        f"{result.summary}\n\nStatus: {result.status}\nSteps: {result.steps_used}",
+                        title="Final Report",
+                        border_style="green" if result.status == "success" else "yellow",
+                    )
+                )
 
-        if wait_for_exit:
+                if not interactive or not wait_for_exit:
+                    break
+
+                try:
+                    next_message = console.input(
+                        "\n[bold cyan]You[/bold cyan] "
+                        "[dim](new task / clarification / approval, Enter to close):[/dim] "
+                    )
+                except EOFError:
+                    logger.info("Input stream closed; shutting down browser session")
+                    break
+
+                current_message = next_message.strip() or None
+
+        if wait_for_exit and (not settings.has_active_llm_api_key() or not interactive):
             try:
                 console.input("[bold]Press Enter to close the browser...[/bold]")
             except EOFError:
@@ -85,7 +138,14 @@ def main(
         bool,
         typer.Option(
             "--wait/--no-wait",
-            help="Keep the browser open until Enter is pressed.",
+            help="Keep the browser open for follow-up input or final Enter.",
+        ),
+    ] = True,
+    interactive: Annotated[
+        bool,
+        typer.Option(
+            "--interactive/--one-shot",
+            help="Allow follow-up messages in the same browser session.",
         ),
     ] = True,
 ) -> None:
@@ -111,7 +171,7 @@ def main(
 
     logger.info("Task accepted")
     try:
-        asyncio.run(run_cli(user_task, wait_for_exit))
+        asyncio.run(run_cli(user_task, wait_for_exit, interactive))
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user.[/yellow]")
 

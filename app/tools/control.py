@@ -78,9 +78,11 @@ async def ask_user_confirmation(input_data: BaseModel, context: ToolContext) -> 
             next_hint="Stop with finish_task(status='blocked') because confirmation cannot be collected.",
         )
 
+    approval_id = args.approval_id or context.safety_guard.latest_pending_approval_id
     approved = context.safety_guard.request_confirmation(
         reason=args.reason,
         action_description=args.action_description,
+        approval_id=approval_id,
     )
     if approved:
         return ToolResult.success(
@@ -90,6 +92,7 @@ async def ask_user_confirmation(input_data: BaseModel, context: ToolContext) -> 
                 "approved": True,
                 "reason": args.reason,
                 "action_description": args.action_description,
+                "approval_id": approval_id,
             },
         )
     return ToolResult.failure(
@@ -100,6 +103,7 @@ async def ask_user_confirmation(input_data: BaseModel, context: ToolContext) -> 
             "approved": False,
             "reason": args.reason,
             "action_description": args.action_description,
+            "approval_id": approval_id,
         },
         next_hint="Do not perform the risky action. Call finish_task with status='blocked' or 'need_user_input'.",
     )

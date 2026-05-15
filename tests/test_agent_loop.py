@@ -109,6 +109,24 @@ class AlwaysFailingToolClient:
         )
 
 
+class TextOnlyModelClient:
+    async def create_message(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> Any:
+        return SimpleNamespace(
+            content=[
+                {
+                    "type": "text",
+                    "text": "Could not find the requested message input.",
+                }
+            ]
+        )
+
+
 async def huge_tool(_: BaseModel, __: ToolContext) -> ToolResult:
     return ToolResult.success(
         tool_name="huge_tool",
@@ -228,3 +246,20 @@ async def test_agent_loop_stops_after_max_consecutive_failures() -> None:
     assert "Maximum consecutive tool failures" in result.summary
     assert "query_dom" in result.summary
     assert client.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_uses_text_only_response_as_summary() -> None:
+    console = Console(file=StringIO(), force_terminal=False)
+    loop = MainAgentLoop(
+        settings=Settings(max_steps=3),
+        browser=SimpleNamespace(),  # type: ignore[arg-type]
+        registry=create_default_tool_registry(),
+        client=TextOnlyModelClient(),
+        console=console,
+    )
+
+    result = await loop.run("Trigger text only response")
+
+    assert result.status == "need_user_input"
+    assert result.summary == "Could not find the requested message input."

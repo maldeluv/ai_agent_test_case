@@ -18,3 +18,4 @@ class AgentRunResult(BaseModel):
     status: AgentStatus
     summary: str
     steps_used: int
+    debug_context: str | None = None

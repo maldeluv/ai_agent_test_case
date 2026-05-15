@@ -35,14 +35,25 @@ class RiskClassifier:
         ),
         "delete_email": (
             "удалить письмо",
+            "удалить письма",
+            "удалить выбранные письма",
             "удалить email",
+            "переместить в корзину",
             "delete email",
+            "delete emails",
             "delete message",
+            "delete selected",
+            "delete spam",
+            "move to trash",
+            "trash",
             "permanently delete",
         ),
         "mark_spam": (
             "пометить как спам",
+            "пометить спам",
+            "пометить письма как спам",
             "mark as spam",
+            "mark spam",
             "spam",
         ),
         "send_application": (
@@ -54,6 +65,8 @@ class RiskClassifier:
         ),
         "submit_form": (
             "отправить форму",
+            "отправка формы",
+            "submit",
             "submit form",
             "send form",
             "submit external",
@@ -61,8 +74,11 @@ class RiskClassifier:
         "send_message": (
             "отправить письмо",
             "отправить сообщение",
+            "отправка сообщения",
+            "send",
             "send email",
             "send message",
+            "press enter to send",
         ),
     }
 
@@ -105,6 +121,8 @@ class RiskClassifier:
             str(arguments.get("text") or ""),
             str(arguments.get("url") or ""),
         ]
+        if tool_name == "type_text" and arguments.get("press_enter") is True:
+            relevant_values.append("press enter to send")
         return " ".join(value for value in relevant_values if value).strip()
 
     def _normalize(self, text: str) -> str:

@@ -13,7 +13,7 @@ async def query_dom(input_data: BaseModel, context: ToolContext) -> ToolResult:
     try:
         page = await context.browser.get_active_page()
         extractor = DOMExtractor(context.browser.settings)
-        candidates = await extractor.extract(page)
+        candidates = await extractor.extract(page, query=args.query)
 
         if not candidates:
             return ToolResult.success(

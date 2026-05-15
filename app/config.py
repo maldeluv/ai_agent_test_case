@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     agent_action_max_chars: int = Field(default=600, ge=100, le=5000)
     tool_result_max_chars: int = Field(default=6000, ge=500, le=50000)
     short_visible_text_chars: int = Field(default=2000, ge=200, le=10000)
+    browser_action_timeout_ms: int = Field(default=7000, ge=500, le=60000)
+    browser_ui_settle_ms: int = Field(default=700, ge=0, le=10000)
+    browser_load_state_timeout_ms: int = Field(default=1500, ge=100, le=15000)
     llm_provider: Literal["openai", "anthropic"] = "openai"
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-5.4-mini"
@@ -42,6 +45,11 @@ class Settings(BaseSettings):
     dom_max_text_chars: int = Field(default=160, ge=20, le=1000)
     dom_max_total_chars: int = Field(default=12000, ge=1000, le=100000)
     dom_query_payload_max_chars: int = Field(default=14000, ge=1000, le=120000)
+    content_max_items: int = Field(default=40, ge=1, le=200)
+    content_max_text_chars: int = Field(default=700, ge=80, le=3000)
+    content_max_controls_per_item: int = Field(default=8, ge=0, le=30)
+    content_max_total_chars: int = Field(default=22000, ge=2000, le=160000)
+    content_query_payload_max_chars: int = Field(default=24000, ge=2000, le=160000)
 
     @field_validator("openai_api_key", "anthropic_api_key", mode="before")
     @classmethod
