@@ -45,9 +45,9 @@ async def run_cli(task: str, wait_for_exit: bool) -> None:
         )
         console.print(f"[bold]You:[/bold] {task}")
 
-        if settings.anthropic_api_key is None:
+        if not settings.has_active_llm_api_key():
             console.print(
-                "[yellow]ANTHROPIC_API_KEY is not configured. "
+                f"[yellow]{settings.llm_provider.upper()} API key is not configured. "
                 "Browser started, but the agent loop was not run.[/yellow]"
             )
         else:

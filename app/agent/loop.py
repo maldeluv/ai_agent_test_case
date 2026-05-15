@@ -10,7 +10,7 @@ from app.agent.prompts import MAIN_AGENT_SYSTEM_PROMPT
 from app.agent.schemas import AgentRunResult
 from app.browser.session import BrowserSession
 from app.config import Settings
-from app.llm.claude_client import ClaudeClient
+from app.llm.client import create_llm_client
 from app.llm.tool_use import (
     content_block_to_dict,
     get_block_text,
@@ -18,7 +18,7 @@ from app.llm.tool_use import (
     get_tool_use_id,
     get_tool_use_input,
     get_tool_use_name,
-    tool_definitions_for_claude,
+    tool_definitions_for_provider,
     tool_result_block,
 )
 from app.tools.registry import ToolContext, ToolRegistry
@@ -26,7 +26,7 @@ from app.tools.schemas import ToolResult
 from app.utils.logger import get_console, get_logger
 
 
-class ClaudeMessageClient(Protocol):
+class AgentModelClient(Protocol):
     async def create_message(
         self,
         *,
@@ -44,13 +44,13 @@ class MainAgentLoop:
         settings: Settings,
         browser: BrowserSession,
         registry: ToolRegistry,
-        client: ClaudeMessageClient | None = None,
+        client: AgentModelClient | None = None,
         console: Console | None = None,
     ) -> None:
         self.settings = settings
         self.browser = browser
         self.registry = registry
-        self.client = client or ClaudeClient(settings)
+        self.client = client or create_llm_client(settings)
         self.console = console or get_console()
         self._logger = get_logger(__name__)
 
@@ -61,7 +61,10 @@ class MainAgentLoop:
                 "content": user_task,
             }
         ]
-        tools = tool_definitions_for_claude(self.registry)
+        tools = tool_definitions_for_provider(
+            self.registry,
+            self.settings.llm_provider,
+        )
         context = ToolContext(browser=self.browser)
 
         for step in range(1, self.settings.max_steps + 1):

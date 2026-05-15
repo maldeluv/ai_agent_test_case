@@ -8,6 +8,30 @@ from app.tools.schemas import ToolResult
 from app.utils.truncate import truncate_text
 
 
+def tool_definitions_for_provider(
+    registry: ToolRegistry,
+    provider: str,
+) -> list[dict[str, Any]]:
+    if provider == "openai":
+        return tool_definitions_for_openai(registry)
+    if provider == "anthropic":
+        return tool_definitions_for_claude(registry)
+    raise ValueError(f"Unsupported LLM provider: {provider}")
+
+
+def tool_definitions_for_openai(registry: ToolRegistry) -> list[dict[str, Any]]:
+    return [tool_definition_for_openai(tool) for tool in registry.list_tools()]
+
+
+def tool_definition_for_openai(tool: ToolDefinition) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": tool.input_model.model_json_schema(),
+    }
+
+
 def tool_definitions_for_claude(registry: ToolRegistry) -> list[dict[str, Any]]:
     return [tool_definition_for_claude(tool) for tool in registry.list_tools()]
 

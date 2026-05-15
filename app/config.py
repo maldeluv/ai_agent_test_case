@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,6 +21,10 @@ class Settings(BaseSettings):
     app_name: str = "browser_ai_agent"
     log_level: str = "INFO"
     max_steps: int = Field(default=30, ge=1)
+    llm_provider: Literal["openai", "anthropic"] = "openai"
+    openai_api_key: SecretStr | None = None
+    openai_model: str = "gpt-5.4-mini"
+    openai_max_output_tokens: int = Field(default=4096, ge=256, le=128000)
     anthropic_api_key: SecretStr | None = None
     anthropic_model: str = "claude-sonnet-4-20250514"
     anthropic_max_tokens: int = Field(default=4096, ge=256, le=64000)
@@ -28,10 +33,10 @@ class Settings(BaseSettings):
     viewport_width: int = Field(default=1280, ge=320)
     viewport_height: int = Field(default=900, ge=240)
 
-    @field_validator("anthropic_api_key", mode="before")
+    @field_validator("openai_api_key", "anthropic_api_key", mode="before")
     @classmethod
     def empty_secret_to_none(cls, value: object) -> object:
-        if value == "":
+        if isinstance(value, str) and not value.strip():
             return None
         return value
 
@@ -42,6 +47,11 @@ class Settings(BaseSettings):
         if path.is_absolute():
             return path
         return PROJECT_ROOT / path
+
+    def has_active_llm_api_key(self) -> bool:
+        if self.llm_provider == "openai":
+            return self.openai_api_key is not None
+        return self.anthropic_api_key is not None
 
 
 @lru_cache
