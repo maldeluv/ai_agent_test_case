@@ -154,8 +154,9 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(
         name="query_dom",
         description=(
-            "Placeholder for compact DOM querying. In this stage it is not "
-            "implemented and returns a structured not_implemented result."
+            "Find relevant visible interactive elements on the active page. "
+            "Returns found, answer, matches with selectors, and confidence. "
+            "Use this before click_element or type_text instead of guessing selectors."
         ),
         input_model=QueryDomInput,
         handler=query_dom,

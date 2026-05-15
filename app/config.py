@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     screenshots_dir: Path = PROJECT_ROOT / "screenshots"
     viewport_width: int = Field(default=1280, ge=320)
     viewport_height: int = Field(default=900, ge=240)
+    dom_max_elements: int = Field(default=80, ge=1, le=500)
+    dom_max_text_chars: int = Field(default=160, ge=20, le=1000)
+    dom_max_total_chars: int = Field(default=12000, ge=1000, le=100000)
 
     @field_validator("openai_api_key", "anthropic_api_key", mode="before")
     @classmethod

@@ -31,10 +31,11 @@ class OpenAIClient:
             "model": self.model,
             "instructions": system,
             "input": input_items,
-            "tools": tools,
             "max_output_tokens": self.max_output_tokens,
-            "parallel_tool_calls": False,
         }
+        if tools:
+            request["tools"] = tools
+            request["parallel_tool_calls"] = False
         if self._previous_response_id is not None:
             request["previous_response_id"] = self._previous_response_id
 

@@ -25,10 +25,12 @@ class ClaudeClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> Any:
-        return await self._client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            system=system,
-            messages=messages,
-            tools=tools,
-        )
+        request: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "system": system,
+            "messages": messages,
+        }
+        if tools:
+            request["tools"] = tools
+        return await self._client.messages.create(**request)

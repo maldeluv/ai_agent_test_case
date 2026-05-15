@@ -100,6 +100,33 @@ class QueryDomInput(StrictBaseModel):
     query: str = Field(min_length=1)
 
 
+class DomCandidate(StrictBaseModel):
+    tag: str
+    selector: str
+    text: str = ""
+    aria_label: str | None = None
+    placeholder: str | None = None
+    name: str | None = None
+    title: str | None = None
+    id: str | None = None
+    role: str | None = None
+    disabled: bool = False
+    visible: bool = True
+    nearby_text: str = ""
+
+
+class DomMatch(StrictBaseModel):
+    selector: str
+    description: str
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class DomQueryData(StrictBaseModel):
+    found: bool
+    answer: str
+    matches: list[DomMatch] = Field(default_factory=list)
+
+
 class FinishTaskInput(StrictBaseModel):
     status: Literal[
         "success",

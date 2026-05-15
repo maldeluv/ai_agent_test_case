@@ -76,10 +76,10 @@ class MainAgentLoop:
                     tools=tools,
                 )
             except Exception as exc:
-                self._logger.exception("Claude request failed")
+                self._logger.exception("LLM request failed")
                 return AgentRunResult(
                     status="failed",
-                    summary=f"Claude request failed: {exc}",
+                    summary=f"LLM request failed: {exc}",
                     steps_used=step - 1,
                 )
 
@@ -101,7 +101,7 @@ class MainAgentLoop:
             if not tool_uses:
                 return AgentRunResult(
                     status="need_user_input",
-                    summary="Claude stopped without a tool call or finish_task.",
+                    summary="LLM stopped without a tool call or finish_task.",
                     steps_used=step,
                 )
 
