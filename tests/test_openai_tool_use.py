@@ -79,6 +79,35 @@ def test_openai_client_builds_function_call_outputs_after_first_response() -> No
     ]
 
 
+def test_openai_client_keeps_compact_state_text_with_tool_outputs() -> None:
+    client = OpenAIClient.__new__(OpenAIClient)
+    client._previous_response_id = "resp_123"
+    messages = [
+        {"role": "user", "content": "Task"},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_123",
+                    "content": '{"ok": true}',
+                },
+                {
+                    "type": "text",
+                    "text": "Compact execution summary",
+                },
+            ],
+        },
+    ]
+
+    input_items = client._build_input_items(messages)
+
+    assert input_items[-1] == {
+        "role": "user",
+        "content": "Compact execution summary",
+    }
+
+
 def test_openai_key_controls_active_llm_key_detection() -> None:
     assert Settings(openai_api_key="sk-test").has_active_llm_api_key() is True
     assert Settings(llm_provider="anthropic", anthropic_api_key="sk-ant").has_active_llm_api_key() is True

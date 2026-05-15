@@ -8,6 +8,7 @@ from rich.panel import Panel
 
 from app.agent.prompts import MAIN_AGENT_SYSTEM_PROMPT
 from app.agent.schemas import AgentRunResult
+from app.agent.state import AgentState
 from app.browser.session import BrowserSession
 from app.config import Settings
 from app.llm.client import create_llm_client
@@ -55,12 +56,9 @@ class MainAgentLoop:
         self._logger = get_logger(__name__)
 
     async def run(self, user_task: str) -> AgentRunResult:
-        messages: list[dict[str, Any]] = [
-            {
-                "role": "user",
-                "content": user_task,
-            }
-        ]
+        state = AgentState(user_task=user_task)
+        previous_assistant_blocks: list[dict[str, Any]] | None = None
+        previous_tool_result_blocks: list[dict[str, Any]] | None = None
         tools = tool_definitions_for_provider(
             self.registry,
             self.settings.llm_provider,
@@ -69,6 +67,11 @@ class MainAgentLoop:
 
         for step in range(1, self.settings.max_steps + 1):
             self.console.rule(f"Agent Step {step}")
+            messages = self._build_messages(
+                state=state,
+                previous_assistant_blocks=previous_assistant_blocks,
+                previous_tool_result_blocks=previous_tool_result_blocks,
+            )
             try:
                 response = await self.client.create_message(
                     system=MAIN_AGENT_SYSTEM_PROMPT,
@@ -86,7 +89,6 @@ class MainAgentLoop:
             assistant_blocks = [
                 content_block_to_dict(block) for block in getattr(response, "content", [])
             ]
-            messages.append({"role": "assistant", "content": assistant_blocks})
 
             tool_uses = []
             for block in getattr(response, "content", []):
@@ -116,7 +118,20 @@ class MainAgentLoop:
                 self._print_tool_call(tool_name, tool_input)
                 result = await self.registry.execute(tool_name, tool_input, context)
                 self._print_tool_result(result)
-                tool_result_blocks.append(tool_result_block(tool_use_id, result))
+                state.record_tool_result(
+                    step=step,
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                    result=result,
+                    settings=self.settings,
+                )
+                tool_result_blocks.append(
+                    tool_result_block(
+                        tool_use_id,
+                        result,
+                        max_chars=self.settings.tool_result_max_chars,
+                    )
+                )
 
                 if tool_name == "finish_task" and result.ok:
                     final_result = AgentRunResult(
@@ -125,7 +140,14 @@ class MainAgentLoop:
                         steps_used=step,
                     )
 
-            messages.append({"role": "user", "content": tool_result_blocks})
+            previous_assistant_blocks = assistant_blocks
+            previous_tool_result_blocks = [
+                *tool_result_blocks,
+                {
+                    "type": "text",
+                    "text": state.to_context_text(self.settings),
+                },
+            ]
 
             if final_result is not None:
                 return final_result
@@ -135,6 +157,36 @@ class MainAgentLoop:
             summary=f"Maximum step limit reached: {self.settings.max_steps}",
             steps_used=self.settings.max_steps,
         )
+
+    def _build_messages(
+        self,
+        *,
+        state: AgentState,
+        previous_assistant_blocks: list[dict[str, Any]] | None,
+        previous_tool_result_blocks: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]]:
+        context_message = state.to_context_text(self.settings)
+        if previous_assistant_blocks is None or previous_tool_result_blocks is None:
+            return [
+                {
+                    "role": "user",
+                    "content": context_message,
+                }
+            ]
+        return [
+            {
+                "role": "user",
+                "content": context_message,
+            },
+            {
+                "role": "assistant",
+                "content": previous_assistant_blocks,
+            },
+            {
+                "role": "user",
+                "content": previous_tool_result_blocks,
+            },
+        ]
 
     def _print_tool_call(self, name: str, tool_input: dict[str, Any]) -> None:
         self.console.print(f"[bold cyan]Using tool:[/bold cyan] {name}")

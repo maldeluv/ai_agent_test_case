@@ -25,7 +25,10 @@ async def get_current_page_info(input_data: BaseModel, context: ToolContext) -> 
             data={
                 "url": page.url,
                 "title": title,
-                "short_visible_text": truncate_text(visible_text, max_chars=2000),
+                "short_visible_text": truncate_text(
+                    visible_text,
+                    max_chars=context.browser.settings.short_visible_text_chars,
+                ),
             },
         )
     except Exception as exc:

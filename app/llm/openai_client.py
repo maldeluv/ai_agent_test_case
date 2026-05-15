@@ -60,15 +60,23 @@ class OpenAIClient:
 
         input_items = []
         for block in content:
-            if not isinstance(block, dict) or block.get("type") != "tool_result":
+            if not isinstance(block, dict):
                 continue
-            input_items.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": block["tool_use_id"],
-                    "output": str(block.get("content", "")),
-                }
-            )
+            if block.get("type") == "tool_result":
+                input_items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": block["tool_use_id"],
+                        "output": str(block.get("content", "")),
+                    }
+                )
+            elif block.get("type") == "text":
+                input_items.append(
+                    {
+                        "role": "user",
+                        "content": str(block.get("text", "")),
+                    }
+                )
         return input_items
 
     def _content_blocks_from_response(self, response: Any) -> list[dict[str, Any]]:

@@ -5,7 +5,7 @@ from typing import Any
 
 from app.tools.registry import ToolDefinition, ToolRegistry
 from app.tools.schemas import ToolResult
-from app.utils.truncate import truncate_text
+from app.utils.truncate import truncate_json_string, truncate_text, truncate_value
 
 
 def tool_definitions_for_provider(
@@ -92,14 +92,52 @@ def get_tool_use_input(block: Any) -> dict[str, Any]:
     return raw_input if isinstance(raw_input, dict) else {}
 
 
-def tool_result_block(tool_use_id: str, result: ToolResult) -> dict[str, Any]:
+def compact_tool_result_payload(result: ToolResult, max_chars: int) -> dict[str, Any]:
     payload = result.model_dump(mode="json", exclude_none=True)
+    if len(truncate_json_string(payload, max_chars=max_chars + 1)) <= max_chars:
+        return payload
+
+    compact_payload = {
+        "ok": result.ok,
+        "tool_name": result.tool_name,
+        "message": truncate_text(result.message, max_chars=500),
+        "error_code": result.error_code,
+        "next_hint": result.next_hint,
+        "data": truncate_value(
+            result.data,
+            max_string_chars=500,
+            max_list_items=12,
+            max_depth=4,
+        ),
+        "truncated": True,
+    }
+    if len(truncate_json_string(compact_payload, max_chars=max_chars + 1)) <= max_chars:
+        return compact_payload
+
+    return {
+        "ok": result.ok,
+        "tool_name": result.tool_name,
+        "message": truncate_text(result.message, max_chars=500),
+        "error_code": result.error_code,
+        "next_hint": result.next_hint,
+        "data_preview": truncate_json_string(result.data, max_chars=max(100, max_chars // 2)),
+        "truncated": True,
+    }
+
+
+def tool_result_block(
+    tool_use_id: str,
+    result: ToolResult,
+    *,
+    max_chars: int = 8000,
+) -> dict[str, Any]:
+    payload = compact_tool_result_payload(result, max_chars=max_chars)
     return {
         "type": "tool_result",
         "tool_use_id": tool_use_id,
         "content": truncate_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
-            max_chars=8000,
+            max_chars=max_chars,
         ),
         "is_error": not result.ok,
     }

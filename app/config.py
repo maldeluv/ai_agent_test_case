@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     app_name: str = "browser_ai_agent"
     log_level: str = "INFO"
     max_steps: int = Field(default=30, ge=1)
+    agent_recent_actions_limit: int = Field(default=8, ge=1, le=50)
+    agent_execution_summary_max_chars: int = Field(default=3000, ge=200, le=20000)
+    agent_action_max_chars: int = Field(default=600, ge=100, le=5000)
+    tool_result_max_chars: int = Field(default=6000, ge=500, le=50000)
+    short_visible_text_chars: int = Field(default=2000, ge=200, le=10000)
     llm_provider: Literal["openai", "anthropic"] = "openai"
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-5.4-mini"
@@ -35,6 +40,7 @@ class Settings(BaseSettings):
     dom_max_elements: int = Field(default=80, ge=1, le=500)
     dom_max_text_chars: int = Field(default=160, ge=20, le=1000)
     dom_max_total_chars: int = Field(default=12000, ge=1000, le=100000)
+    dom_query_payload_max_chars: int = Field(default=14000, ge=1000, le=120000)
 
     @field_validator("openai_api_key", "anthropic_api_key", mode="before")
     @classmethod

@@ -7,6 +7,7 @@ from app.config import Settings
 from app.llm.client import create_llm_client
 from app.llm.tool_use import get_block_text, get_block_type
 from app.tools.schemas import DomCandidate, DomMatch, DomQueryData
+from app.utils.truncate import json_char_size, truncate_text, truncate_value
 
 
 DOM_SUB_AGENT_SYSTEM_PROMPT = """You are a DOM analyst for a browser automation agent.
@@ -70,18 +71,7 @@ class DOMSubAgent:
                 matches=[],
             )
 
-        candidate_payload = [
-            candidate.model_dump(mode="json", exclude_none=True)
-            for candidate in candidates
-        ]
-        content = json.dumps(
-            {
-                "query": query,
-                "candidates": candidate_payload,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
+        content = self._build_payload(query=query, candidates=candidates)
         response = await self.client.create_message(
             system=DOM_SUB_AGENT_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content}],
@@ -90,6 +80,48 @@ class DOMSubAgent:
         text = self._response_text(response)
         parsed = DomQueryData.model_validate_json(self._extract_json_object(text))
         return self._filter_to_candidate_selectors(parsed, candidates)
+
+    def _build_payload(self, *, query: str, candidates: list[DomCandidate]) -> str:
+        compact_query = truncate_text(query, max_chars=1000)
+        payload_candidates: list[dict[str, Any]] = []
+        for candidate in candidates:
+            compact_candidate = truncate_value(
+                candidate.model_dump(mode="json", exclude_none=True),
+                max_string_chars=self.settings.dom_max_text_chars,
+                max_list_items=10,
+                max_depth=3,
+            )
+            tentative = {
+                "query": compact_query,
+                "candidates": [*payload_candidates, compact_candidate],
+            }
+            if payload_candidates and json_char_size(tentative) > self.settings.dom_query_payload_max_chars:
+                break
+            payload_candidates.append(compact_candidate)
+
+        payload = {
+            "query": compact_query,
+            "candidates": payload_candidates,
+        }
+        payload_text = json.dumps(payload, ensure_ascii=False, indent=2)
+        if len(payload_text) <= self.settings.dom_query_payload_max_chars:
+            return payload_text
+        fallback_payload = {
+            "query": truncate_text(compact_query, max_chars=300),
+            "candidates": payload_candidates[:1],
+            "payload_truncated": True,
+        }
+        fallback_text = json.dumps(fallback_payload, ensure_ascii=False, indent=2)
+        if len(fallback_text) <= self.settings.dom_query_payload_max_chars:
+            return fallback_text
+        return json.dumps(
+            {
+                "query": truncate_text(compact_query, max_chars=300),
+                "candidates": [],
+                "payload_truncated": True,
+            },
+            ensure_ascii=False,
+        )
 
     def _response_text(self, response: Any) -> str:
         chunks: list[str] = []
