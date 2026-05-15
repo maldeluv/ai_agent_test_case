@@ -25,6 +25,7 @@ async def test_default_registry_contains_base_tools() -> None:
         "get_current_page_info",
         "wait",
         "take_screenshot",
+        "ask_user_confirmation",
         "click_element",
         "type_text",
         "scroll_page",

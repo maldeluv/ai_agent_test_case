@@ -85,6 +85,30 @@ class TwoStepModelClient:
         )
 
 
+class AlwaysFailingToolClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def create_message(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> Any:
+        self.calls += 1
+        return SimpleNamespace(
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": f"toolu_missing_{self.calls}",
+                    "name": "missing_tool",
+                    "input": {},
+                }
+            ]
+        )
+
+
 async def huge_tool(_: BaseModel, __: ToolContext) -> ToolResult:
     return ToolResult.success(
         tool_name="huge_tool",
@@ -184,3 +208,23 @@ async def test_agent_loop_passes_compact_state_instead_of_raw_history() -> None:
     assert len(second_call_messages) == 3
     assert "Compact execution summary" in serialized_messages
     assert "x" * 1000 not in serialized_messages
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_stops_after_max_consecutive_failures() -> None:
+    client = AlwaysFailingToolClient()
+    console = Console(file=StringIO(), force_terminal=False)
+    loop = MainAgentLoop(
+        settings=Settings(max_steps=5, max_consecutive_failures=2),
+        browser=SimpleNamespace(),  # type: ignore[arg-type]
+        registry=create_default_tool_registry(),
+        client=client,
+        console=console,
+    )
+
+    result = await loop.run("Trigger repeated failures")
+
+    assert result.status == "failed"
+    assert "Maximum consecutive tool failures" in result.summary
+    assert "query_dom" in result.summary
+    assert client.calls == 2

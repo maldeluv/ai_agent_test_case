@@ -76,6 +76,10 @@ class TakeScreenshotInput(StrictBaseModel):
 
 class ClickElementInput(StrictBaseModel):
     selector: str = Field(min_length=1)
+    action_description: str | None = Field(
+        default=None,
+        description="Brief description of the intended click, especially before risky actions.",
+    )
 
     @field_validator("selector")
     @classmethod
@@ -89,6 +93,11 @@ class ClickElementInput(StrictBaseModel):
 class TypeTextInput(ClickElementInput):
     text: str
     press_enter: bool = False
+
+
+class AskUserConfirmationInput(StrictBaseModel):
+    reason: str = Field(min_length=1)
+    action_description: str = Field(min_length=1)
 
 
 class ScrollPageInput(StrictBaseModel):

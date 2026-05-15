@@ -7,12 +7,15 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from app.browser.session import BrowserSession
+from app.safety import SafetyGuard
 from app.tools.schemas import ToolResult
 
 
-@dataclass(frozen=True)
+@dataclass
 class ToolContext:
     browser: BrowserSession
+    safety_guard: SafetyGuard | None = None
+    user_task: str = ""
 
 
 ToolHandler = Callable[[BaseModel, ToolContext], Awaitable[ToolResult]]
@@ -78,6 +81,14 @@ class ToolRegistry:
                 next_hint="Fix the tool arguments and retry.",
             )
 
+        if context.safety_guard is not None:
+            safety_result = context.safety_guard.check_tool_call(
+                tool_name=name,
+                arguments=validated.model_dump(mode="json", exclude_none=True),
+            )
+            if safety_result is not None:
+                return safety_result
+
         try:
             return await definition.handler(validated, context)
         except Exception as exc:
@@ -91,12 +102,13 @@ class ToolRegistry:
 
 
 def create_default_tool_registry() -> ToolRegistry:
-    from app.tools.control import finish_task, take_screenshot, wait
+    from app.tools.control import ask_user_confirmation, finish_task, take_screenshot, wait
     from app.tools.dom_query import query_dom
     from app.tools.interactions import click_element, scroll_page, type_text
     from app.tools.navigation import navigate_to_url
     from app.tools.observations import get_current_page_info
     from app.tools.schemas import (
+        AskUserConfirmationInput,
         ClickElementInput,
         EmptyInput,
         FinishTaskInput,
@@ -134,14 +146,30 @@ def create_default_tool_registry() -> ToolRegistry:
         handler=take_screenshot,
     )
     registry.register(
+        name="ask_user_confirmation",
+        description=(
+            "Ask the user for explicit confirmation before a risky external action. "
+            "Use this for payments, final order confirmation, deleting emails, "
+            "marking spam, sending applications/messages, or submitting forms."
+        ),
+        input_model=AskUserConfirmationInput,
+        handler=ask_user_confirmation,
+    )
+    registry.register(
         name="click_element",
-        description="Click an element found by a CSS selector.",
+        description=(
+            "Click an element found by a CSS selector. Include action_description "
+            "when the click may pay, submit, delete, send, mark spam, or confirm an order."
+        ),
         input_model=ClickElementInput,
         handler=click_element,
     )
     registry.register(
         name="type_text",
-        description="Fill text into an editable element and optionally press Enter.",
+        description=(
+            "Fill text into an editable element and optionally press Enter. Include "
+            "action_description when Enter may submit a form, send a message, or create an external effect."
+        ),
         input_model=TypeTextInput,
         handler=type_text,
     )

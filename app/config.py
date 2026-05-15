@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     app_name: str = "browser_ai_agent"
     log_level: str = "INFO"
     max_steps: int = Field(default=30, ge=1)
+    max_consecutive_failures: int = Field(default=4, ge=1, le=20)
     agent_recent_actions_limit: int = Field(default=8, ge=1, le=50)
     agent_execution_summary_max_chars: int = Field(default=3000, ge=200, le=20000)
     agent_action_max_chars: int = Field(default=600, ge=100, le=5000)

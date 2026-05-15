@@ -22,6 +22,7 @@ from app.llm.tool_use import (
     tool_definitions_for_provider,
     tool_result_block,
 )
+from app.safety import SafetyGuard
 from app.tools.registry import ToolContext, ToolRegistry
 from app.tools.schemas import ToolResult
 from app.utils.logger import get_console, get_logger
@@ -63,7 +64,13 @@ class MainAgentLoop:
             self.registry,
             self.settings.llm_provider,
         )
-        context = ToolContext(browser=self.browser)
+        safety_guard = SafetyGuard(console=self.console)
+        context = ToolContext(
+            browser=self.browser,
+            safety_guard=safety_guard,
+            user_task=user_task,
+        )
+        consecutive_failures = 0
 
         for step in range(1, self.settings.max_steps + 1):
             self.console.rule(f"Agent Step {step}")
@@ -137,6 +144,21 @@ class MainAgentLoop:
                     final_result = AgentRunResult(
                         status=result.data.get("status", "success"),
                         summary=result.data.get("summary", result.message),
+                        steps_used=step,
+                    )
+                elif result.ok:
+                    consecutive_failures = 0
+                else:
+                    consecutive_failures += 1
+
+                if consecutive_failures >= self.settings.max_consecutive_failures:
+                    return AgentRunResult(
+                        status="failed",
+                        summary=(
+                            "Maximum consecutive tool failures reached. "
+                            "Recommended recovery: call get_current_page_info or query_dom "
+                            "to refresh page state before retrying."
+                        ),
                         steps_used=step,
                     )
 

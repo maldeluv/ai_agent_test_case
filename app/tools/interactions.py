@@ -19,7 +19,10 @@ async def click_element(input_data: BaseModel, context: ToolContext) -> ToolResu
         return ToolResult.success(
             tool_name="click_element",
             message="Clicked element successfully",
-            data={"selector": args.selector},
+            data={
+                "selector": args.selector,
+                "action_description": args.action_description,
+            },
         )
     except Exception as exc:
         return ToolResult.failure(
@@ -30,7 +33,10 @@ async def click_element(input_data: BaseModel, context: ToolContext) -> ToolResu
                 "selector": args.selector,
                 "exception_type": type(exc).__name__,
             },
-            next_hint="Refresh page info or query DOM again before retrying.",
+            next_hint=(
+                "Refresh page info or call query_dom for a fresh selector before retrying. "
+                "Do not repeat the same failed click indefinitely."
+            ),
         )
 
 
@@ -48,6 +54,7 @@ async def type_text(input_data: BaseModel, context: ToolContext) -> ToolResult:
             data={
                 "selector": args.selector,
                 "press_enter": args.press_enter,
+                "action_description": args.action_description,
             },
         )
     except Exception as exc:
@@ -59,7 +66,10 @@ async def type_text(input_data: BaseModel, context: ToolContext) -> ToolResult:
                 "selector": args.selector,
                 "exception_type": type(exc).__name__,
             },
-            next_hint="Check whether the selector points to an editable element.",
+            next_hint=(
+                "Call query_dom for a fresh editable selector and check whether the target "
+                "accepts text before retrying."
+            ),
         )
 
 

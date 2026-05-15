@@ -27,5 +27,8 @@ async def navigate_to_url(input_data: BaseModel, context: ToolContext) -> ToolRe
             message=f"Failed to navigate to URL: {exc}",
             error_code="navigation_failed",
             data={"url": args.url, "exception_type": type(exc).__name__},
-            next_hint="Check the URL and current browser state, then retry.",
+            next_hint=(
+                "Check the URL and current browser state with get_current_page_info, "
+                "then retry only if navigation is still needed."
+            ),
         )
