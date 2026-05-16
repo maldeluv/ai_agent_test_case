@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class StrictBaseModel(BaseModel):
@@ -70,8 +70,67 @@ class WaitInput(StrictBaseModel):
     seconds: float = Field(gt=0, le=60)
 
 
+class WaitForPageStateInput(StrictBaseModel):
+    selector: str | None = Field(
+        default=None,
+        description="Optional selector to wait for.",
+    )
+    selector_state: Literal["attached", "detached", "visible", "hidden"] = Field(
+        default="visible",
+        description="Expected selector state when selector is provided.",
+    )
+    text: str | None = Field(
+        default=None,
+        description="Optional visible body text fragment to wait for.",
+    )
+    url_contains: str | None = Field(
+        default=None,
+        description="Optional URL fragment to wait for.",
+    )
+    timeout_ms: int = Field(default=5000, ge=100, le=60000)
+
+    @model_validator(mode="after")
+    def require_condition(self) -> "WaitForPageStateInput":
+        if not (self.selector or self.text or self.url_contains):
+            raise ValueError("Provide selector, text, or url_contains")
+        return self
+
+
 class TakeScreenshotInput(StrictBaseModel):
     full_page: bool = False
+
+
+class ObserveScreenshotInput(StrictBaseModel):
+    question: str = Field(
+        min_length=1,
+        description=(
+            "Specific visual question to answer from the current screenshot. "
+            "Use only after DOM/text tools are insufficient."
+        ),
+    )
+    full_page: bool = Field(
+        default=False,
+        description="Capture the full page. Keep false unless viewport context is insufficient.",
+    )
+    save_screenshot: bool = Field(
+        default=True,
+        description="Save the captured image to screenshots/ for debugging.",
+    )
+
+
+class VisualRegion(StrictBaseModel):
+    region: str
+    description: str
+    evidence: str = ""
+
+
+class ScreenshotObservationData(StrictBaseModel):
+    answer: str
+    visible_regions: list[VisualRegion] = Field(default_factory=list)
+    suggested_next_step: str = ""
+    confidence: float = Field(ge=0.0, le=1.0)
+    error_code: str | None = None
+    raw_preview: str | None = None
 
 
 class BatchActionItem(StrictBaseModel):
@@ -149,6 +208,22 @@ class ScrollPageInput(StrictBaseModel):
 
 class ScrollElementInput(ScrollPageInput):
     selector: str = Field(min_length=1)
+
+    @field_validator("selector")
+    @classmethod
+    def normalize_selector(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("selector must not be blank")
+        return stripped
+
+
+class GetElementInfoInput(StrictBaseModel):
+    selector: str = Field(
+        min_length=1,
+        description="Selector for the element to inspect.",
+    )
+    max_text_chars: int = Field(default=500, ge=50, le=5000)
 
     @field_validator("selector")
     @classmethod

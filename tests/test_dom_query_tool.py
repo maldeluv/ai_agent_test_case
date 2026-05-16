@@ -71,6 +71,8 @@ async def test_query_dom_returns_expected_result_format(monkeypatch: pytest.Monk
     assert result.data["found"] is True
     assert result.data["answer"] == "Found search field"
     assert result.data["candidate_count"] == 1
+    assert result.data["candidate_preview"][0]["selector"] == 'input[name="q"]'
+    assert result.data["candidate_preview"][0]["placeholder"] == "Search"
     assert result.data["matches"] == [
         {
             "selector": 'input[name="q"]',

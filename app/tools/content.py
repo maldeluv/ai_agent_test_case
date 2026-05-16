@@ -6,6 +6,7 @@ import json
 from pydantic import BaseModel
 
 from app.browser.content_extractor import ContentExtractor
+from app.safety.prompt_injection import detect_prompt_injection_warnings
 from app.subagents.content_agent import ContentSubAgent
 from app.tools.registry import ToolContext
 from app.tools.schemas import (
@@ -46,6 +47,7 @@ async def extract_visible_items(input_data: BaseModel, context: ToolContext) -> 
 
         content_agent = ContentSubAgent(context.browser.settings)
         result = await content_agent.analyze(query=args.query, items=visible_items)
+        untrusted_content_warnings = _warnings_for_visible_items(visible_items)
         return ToolResult.success(
             tool_name="extract_visible_items",
             message="Visible item extraction completed",
@@ -60,6 +62,7 @@ async def extract_visible_items(input_data: BaseModel, context: ToolContext) -> 
                 "raw_item_count": len(visible_items),
                 "error_code": result.error_code,
                 "raw_preview": result.raw_preview,
+                "untrusted_content_warnings": untrusted_content_warnings,
             },
         )
     except Exception as exc:
@@ -128,6 +131,7 @@ async def collect_visible_items(input_data: BaseModel, context: ToolContext) -> 
                 "scroll_steps": len(scroll_states),
                 "scroll_states": scroll_states,
                 "items": _visible_items_jsonable(collected),
+                "untrusted_content_warnings": _warnings_for_visible_items(collected),
                 "answer": (
                     f"Collected {len(collected)} visible item(s)."
                     if len(collected) >= args.target_count
@@ -170,6 +174,7 @@ async def classify_items_with_evidence(
                 ],
                 "error_code": result.error_code,
                 "raw_preview": result.raw_preview,
+                "untrusted_content_warnings": _warnings_for_visible_items(args.items),
             },
         )
     except Exception as exc:
@@ -379,6 +384,15 @@ def _visible_items_jsonable(items: list[VisibleItem]) -> list[dict[str, object]]
         payload["source_text"] = item.text
         result.append(payload)
     return result
+
+
+def _warnings_for_visible_items(items: list[VisibleItem]) -> list[dict[str, str]]:
+    text = "\n".join(
+        item.source_text or item.text
+        for item in items
+        if item.source_text or item.text
+    )
+    return detect_prompt_injection_warnings(text)
 
 
 def _apply_deterministic_email_fallback(result: object) -> object:

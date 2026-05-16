@@ -177,8 +177,13 @@ def create_default_tool_registry() -> ToolRegistry:
     from app.tools.dom_query import query_dom
     from app.tools.interactions import click_element, scroll_element, scroll_page, type_text
     from app.tools.navigation import go_back, navigate_to_url
-    from app.tools.observations import get_current_page_info
+    from app.tools.observations import (
+        get_current_page_info,
+        get_element_info,
+        wait_for_page_state,
+    )
     from app.tools.tabs import list_tabs, switch_tab
+    from app.tools.vision import observe_screenshot
     from app.tools.schemas import (
         AskUserConfirmationInput,
         ClassifyItemsWithEvidenceInput,
@@ -187,7 +192,9 @@ def create_default_tool_registry() -> ToolRegistry:
         EmptyInput,
         ExtractVisibleItemsInput,
         FinishTaskInput,
+        GetElementInfoInput,
         NavigateToUrlInput,
+        ObserveScreenshotInput,
         PrepareBatchActionConfirmationInput,
         QueryDomInput,
         ScrollElementInput,
@@ -196,6 +203,7 @@ def create_default_tool_registry() -> ToolRegistry:
         TakeScreenshotInput,
         TypeTextInput,
         WaitInput,
+        WaitForPageStateInput,
     )
 
     registry = ToolRegistry()
@@ -218,7 +226,8 @@ def create_default_tool_registry() -> ToolRegistry:
         name="get_current_page_info",
         description=(
             "Collect URL, title, compact visible text, and browser tab summary "
-            "from the active page."
+            "from the active page. Includes untrusted_content_warnings when visible "
+            "page text looks like prompt-injection content."
         ),
         input_model=EmptyInput,
         handler=get_current_page_info,
@@ -248,10 +257,31 @@ def create_default_tool_registry() -> ToolRegistry:
         handler=wait,
     )
     registry.register(
+        name="wait_for_page_state",
+        description=(
+            "Wait until a selector, visible text fragment, or URL fragment is observed. "
+            "Prefer this over blind wait when expecting search results, cart counters, "
+            "modals, form validation, navigation, or other concrete UI changes."
+        ),
+        input_model=WaitForPageStateInput,
+        handler=wait_for_page_state,
+    )
+    registry.register(
         name="take_screenshot",
         description="Save a screenshot of the active page to screenshots/.",
         input_model=TakeScreenshotInput,
         handler=take_screenshot,
+    )
+    registry.register(
+        name="observe_screenshot",
+        description=(
+            "Fallback visual observation of the current browser screenshot. Use only "
+            "when DOM/text tools are insufficient or contradictory, such as canvas UI, "
+            "unclear overlays, visual layout ambiguity, or repeated selector failures. "
+            "Returns visual regions and a suggested next step, but never exact CSS selectors."
+        ),
+        input_model=ObserveScreenshotInput,
+        handler=observe_screenshot,
     )
     registry.register(
         name="ask_user_confirmation",
@@ -305,10 +335,22 @@ def create_default_tool_registry() -> ToolRegistry:
         description=(
             "Find relevant visible interactive elements on the active page. "
             "Returns found, answer, matches with selectors, and confidence. "
+            "Also includes a compact candidate_preview and active layer/work-area diagnostics. "
             "Use this before click_element or type_text instead of guessing selectors."
         ),
         input_model=QueryDomInput,
         handler=query_dom,
+    )
+    registry.register(
+        name="get_element_info",
+        description=(
+            "Read the current state of a known selector: text/value, labels, role, "
+            "visibility, checked/disabled state, rect, and occlusion diagnostics. "
+            "Use this to verify counters, selected quantities, modal controls, "
+            "or typed values after an action."
+        ),
+        input_model=GetElementInfoInput,
+        handler=get_element_info,
     )
     registry.register(
         name="extract_visible_items",

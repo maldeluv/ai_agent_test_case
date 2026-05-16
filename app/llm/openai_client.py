@@ -110,6 +110,7 @@ class OpenAIClient:
     ) -> list[dict[str, Any]]:
         input_items: list[dict[str, Any]] = []
         text_chunks: list[str] = []
+        multimodal_content: list[dict[str, str]] = []
         for block in content:
             if not isinstance(block, dict):
                 continue
@@ -138,8 +139,23 @@ class OpenAIClient:
                 text = str(block.get("text", ""))
                 if text:
                     text_chunks.append(text)
+            elif block_type == "image":
+                image_content = self._image_block_to_openai_content(block)
+                if image_content is not None:
+                    multimodal_content.append(image_content)
 
-        if text_chunks:
+        if multimodal_content:
+            message_content = [
+                {"type": "input_text", "text": "\n".join(text_chunks)}
+            ] if text_chunks else []
+            message_content.extend(multimodal_content)
+            input_items.append(
+                {
+                    "role": role if role in {"user", "assistant", "system"} else "user",
+                    "content": message_content,
+                }
+            )
+        elif text_chunks:
             input_items.append(
                 {
                     "role": role if role in {"user", "assistant", "system"} else "user",
@@ -147,6 +163,23 @@ class OpenAIClient:
                 }
             )
         return input_items
+
+    def _image_block_to_openai_content(
+        self,
+        block: dict[str, Any],
+    ) -> dict[str, str] | None:
+        source = block.get("source")
+        media_type = str(block.get("media_type") or "image/png")
+        data = block.get("data")
+        if isinstance(source, dict):
+            media_type = str(source.get("media_type") or media_type)
+            data = source.get("data", data)
+        if not data:
+            return None
+        return {
+            "type": "input_image",
+            "image_url": f"data:{media_type};base64,{data}",
+        }
 
     def _content_blocks_from_response(self, response: Any) -> list[dict[str, Any]]:
         blocks: list[dict[str, Any]] = []

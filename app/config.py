@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     content_max_controls_per_item: int = Field(default=8, ge=0, le=30)
     content_max_total_chars: int = Field(default=22000, ge=2000, le=160000)
     content_query_payload_max_chars: int = Field(default=24000, ge=2000, le=160000)
+    vision_observation_enabled: bool = True
+    vision_screenshot_quality: int = Field(default=70, ge=30, le=95)
+    vision_max_screenshot_bytes: int = Field(default=3_000_000, ge=50_000, le=20_000_000)
+    vision_question_max_chars: int = Field(default=1000, ge=100, le=5000)
 
     @field_validator("openai_api_key", "anthropic_api_key", mode="before")
     @classmethod

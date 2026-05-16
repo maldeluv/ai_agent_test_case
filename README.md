@@ -135,6 +135,7 @@ browser_profile/
 - `list_tabs` - список вкладок с index, title, URL и active flag.
 - `switch_tab` - переключение активной вкладки.
 - `query_dom` - поиск релевантных интерактивных элементов через DOM Extractor и DOM Sub-Agent.
+- `get_element_info` - точечное чтение состояния известного selector: text/value, visibility, checked/disabled, rect, occlusion.
 - `extract_visible_items` - чтение и анализ видимых списков, строк, карточек, писем и таблиц.
 - `collect_visible_items` - накопление уникальных visible items через viewport и scroll steps.
 - `classify_items_with_evidence` - классификация видимых items только по evidence/source_text.
@@ -144,7 +145,9 @@ browser_profile/
 - `scroll_page` - прокрутка страницы.
 - `scroll_element` - прокрутка внутреннего scroll-container, например inbox, table, feed или chat pane.
 - `wait` - короткое ожидание.
+- `wait_for_page_state` - ожидание конкретного selector/text/URL вместо слепого sleep.
 - `take_screenshot` - сохранение screenshot в `screenshots/`.
+- `observe_screenshot` - fallback visual-анализ текущего screenshot через LLM vision, когда DOM/text tools недостаточны.
 - `ask_user_confirmation` - явное подтверждение рискованного действия.
 - `finish_task` - финальный статус и summary.
 
@@ -171,6 +174,8 @@ browser_profile/
 - элементы с useful labels: `aria-label`, `placeholder`, `title`, `name`, `data-testid`, `data-test`, `data-qa`.
 
 Для каждого кандидата собираются selector, text, labels, role, disabled, viewport/occlusion diagnostics, selector stability и nearby text.
+
+`query_dom` также возвращает компактный `candidate_preview`: несколько верхних кандидатов с selector, text/labels, role, rect, stability, active-layer/work-area diagnostics. Это помогает агенту восстановиться, если DOM Sub-Agent дал низкую уверенность или не выбрал match, не отправляя в модель полный DOM.
 
 Extractor умеет фокусироваться на активном верхнем слое:
 
@@ -240,6 +245,32 @@ SafetyGuard не даст выполнить batch delete/mark-spam, если ba
 
 Если `press_enter=true`, tool возвращает только “submission/send attempted”. Агент обязан сделать последующее observation перед тем, как заявлять успешную отправку.
 
+## Verification Tools
+
+Скриншоты из ТЗ показывают типовой паттерн демо: клик, ввод, ожидание, затем проверка результата по странице. Для этого есть два generic-инструмента без привязки к сайтам:
+
+- `wait_for_page_state` ждёт конкретное состояние: selector visible/hidden/attached/detached, появление текста или изменение URL. Это предпочтительнее, чем повторять `wait(2)`, когда агент ожидает модалку, результаты поиска, счётчик корзины или переход.
+- `get_element_info` читает состояние уже найденного selector: `text`, `value`, `checked`, `disabled`, `visible`, `rect`, `center_occluded`. Это удобно для проверки количества товара, заполненного поля, выбранного чекбокса или кнопок внутри модалки.
+
+## Vision Fallback
+
+Основной режим остаётся DOM-first. `observe_screenshot` нужен только когда DOM/text tools не дают ответа или противоречат реальной картинке: canvas/custom UI, непонятный overlay, визуальная раскладка, повторные selector failures, модалка/панель визуально есть, но extractor её не выделил.
+
+Tool делает viewport screenshot в JPEG, отправляет его в Vision Sub-Agent и возвращает:
+
+- `answer`;
+- `visible_regions`;
+- `suggested_next_step`;
+- `confidence`;
+- optional saved `path`.
+
+Vision Sub-Agent не имеет права придумывать CSS selector. После visual observation агент должен вернуться к `query_dom` или `get_element_info`, чтобы получить точный selector перед кликом/вводом. Настройки стоимости/размера:
+
+- `VISION_OBSERVATION_ENABLED`;
+- `VISION_SCREENSHOT_QUALITY`;
+- `VISION_MAX_SCREENSHOT_BYTES`;
+- `VISION_QUESTION_MAX_CHARS`.
+
 ## Tab Management
 
 Некоторые сайты открывают важные экраны в новой вкладке: auth flows, документы, внешние ссылки, почтовые или CRM-экраны. BrowserSession отслеживает новые Playwright pages и считает новую вкладку активной.
@@ -256,6 +287,8 @@ Tab-aware behavior:
 ## Security Layer
 
 `SafetyGuard` блокирует рискованные действия до подтверждения пользователя. Риск классифицируется по tool name, selector, text, URL, `action_description`, `target_context` и `batch_items`.
+
+Наблюдения и content tools дополнительно возвращают `untrusted_content_warnings`, если видимый текст страницы похож на prompt-injection: просьбы игнорировать инструкции, раскрыть системный prompt, отправить секреты или управлять агентом. Это не блокировка, а явный сигнал для LLM: такие фрагменты считаются только содержимым страницы, а не инструкциями.
 
 Опасные категории:
 

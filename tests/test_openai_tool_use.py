@@ -157,6 +157,43 @@ def test_openai_client_stateless_mode_keeps_compact_state_without_previous_chain
     }
 
 
+def test_openai_client_converts_image_blocks_to_multimodal_input() -> None:
+    client = OpenAIClient.__new__(OpenAIClient)
+    client._use_previous_response_id = False
+    client._previous_response_id = None
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "What is visible?"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "abc123",
+                    },
+                },
+            ],
+        }
+    ]
+
+    input_items = client._build_input_items(messages)
+
+    assert input_items == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "What is visible?"},
+                {
+                    "type": "input_image",
+                    "image_url": "data:image/jpeg;base64,abc123",
+                },
+            ],
+        }
+    ]
+
+
 class FakeResponses:
     def __init__(self) -> None:
         self.request: dict[str, object] | None = None
