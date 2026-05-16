@@ -250,6 +250,10 @@ class DomCandidate(StrictBaseModel):
     center_occluded: bool = False
     rect: dict[str, float] = Field(default_factory=dict)
     selector_stability: Literal["high", "medium", "low"] = "medium"
+    inside_active_layer: bool = True
+    active_layer_selector: str | None = None
+    inside_active_work_area: bool = True
+    active_work_area_selector: str | None = None
     nearby_text: str = ""
 
 
@@ -297,6 +301,10 @@ class VisibleItem(StrictBaseModel):
     center_occluded: bool = False
     rect: dict[str, float] = Field(default_factory=dict)
     selector_stability: Literal["high", "medium", "low"] = "medium"
+    inside_active_layer: bool = True
+    active_layer_selector: str | None = None
+    inside_active_work_area: bool = True
+    active_work_area_selector: str | None = None
     scroll_container_selector: str | None = None
     controls: list[VisibleItemControl] = Field(default_factory=list)
 

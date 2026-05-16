@@ -36,6 +36,29 @@ function queryTerms(query) {
   return Array.from(new Set(normalized.split(/\s+/).filter((term) => term.length >= 3)));
 }
 
+function hasMessageComposeIntent(query) {
+  const normalized = String(query || "").toLowerCase();
+  return [
+    "message",
+    "send",
+    "reply",
+    "write",
+    "type",
+    "composer",
+    "compose",
+    "textbox",
+    "input",
+    "сообщ",
+    "отправ",
+    "напиш",
+    "напис",
+    "ответ",
+    "ввод",
+    "поле",
+    "текст"
+  ].some((term) => normalized.includes(term));
+}
+
 function isVisible(element) {
   const style = window.getComputedStyle(element);
   if (
@@ -242,6 +265,206 @@ function isClickableElement(element) {
   );
 }
 
+function numericZIndex(element) {
+  const value = Number.parseInt(window.getComputedStyle(element).zIndex, 10);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function viewportOverlapRatio(element) {
+  const rect = element.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 1;
+  const left = Math.max(rect.left, 0);
+  const top = Math.max(rect.top, 0);
+  const right = Math.min(rect.right, viewportWidth);
+  const bottom = Math.min(rect.bottom, viewportHeight);
+  const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+  return area / Math.max(1, viewportWidth * viewportHeight);
+}
+
+function modalInteractiveCount(element) {
+  const selector = [
+    "button",
+    "a",
+    "input:not([type='hidden'])",
+    "textarea",
+    "select",
+    "[role='button']",
+    "[role='link']",
+    "[role='textbox']",
+    "[contenteditable]",
+    "[tabindex]:not([tabindex='-1'])"
+  ].join(",");
+  return Array.from(element.querySelectorAll(selector)).filter((node) => isVisible(node)).length;
+}
+
+function isExplicitModalElement(element) {
+  const tag = element.tagName.toLowerCase();
+  const role = getRole(element);
+  const ariaModal = (element.getAttribute("aria-modal") || "").toLowerCase();
+  const className = String(element.getAttribute("class") || "").toLowerCase();
+  return (
+    (tag === "dialog" && element.open) ||
+    role === "dialog" ||
+    role === "alertdialog" ||
+    ariaModal === "true" ||
+    className.includes("modal") ||
+    className.includes("popup") ||
+    className.includes("overlay") ||
+    className.includes("drawer")
+  );
+}
+
+function activeLayerScore(element) {
+  if (!isVisible(element) || !inViewport(element)) {
+    return -Infinity;
+  }
+  const rect = element.getBoundingClientRect();
+  if (rect.width < 120 || rect.height < 80) {
+    return -Infinity;
+  }
+  const style = window.getComputedStyle(element);
+  const position = style.position;
+  const zIndex = numericZIndex(element);
+  const overlapRatio = viewportOverlapRatio(element);
+  const explicit = isExplicitModalElement(element);
+  const interactiveCount = modalInteractiveCount(element);
+  if (!explicit && !["fixed", "sticky"].includes(position) && zIndex <= 0) {
+    return -Infinity;
+  }
+  if (!explicit && interactiveCount === 0) {
+    return -Infinity;
+  }
+  if (!explicit && overlapRatio < 0.15) {
+    return -Infinity;
+  }
+
+  let score = 0;
+  if (explicit) {
+    score += 2000;
+  }
+  if (position === "fixed") {
+    score += 700;
+  }
+  if (position === "sticky") {
+    score += 250;
+  }
+  score += Math.min(Math.max(zIndex, 0), 10000) / 10;
+  score += Math.min(interactiveCount, 20) * 80;
+  score += Math.min(overlapRatio, 1) * 300;
+  if (overlapRatio > 0.75 && !explicit && elementText(element).length < 20) {
+    score -= 300;
+  }
+  return score;
+}
+
+function findActiveLayer() {
+  const selectors = [
+    "dialog[open]",
+    "[role='dialog']",
+    "[role='alertdialog']",
+    "[aria-modal='true']",
+    "[class*='modal' i]",
+    "[class*='popup' i]",
+    "[class*='overlay' i]",
+    "[class*='drawer' i]"
+  ].join(",");
+  const candidates = document.body ? Array.from(document.body.querySelectorAll(selectors)) : [];
+  if (document.body) {
+    for (const element of Array.from(document.body.querySelectorAll("*"))) {
+      const style = window.getComputedStyle(element);
+      const zIndex = numericZIndex(element);
+      if (
+        ["fixed", "sticky"].includes(style.position) &&
+        zIndex > 0 &&
+        isVisible(element) &&
+        inViewport(element)
+      ) {
+        candidates.push(element);
+      }
+    }
+  }
+
+  let best = null;
+  let bestScore = 0;
+  for (const candidate of candidates) {
+    const score = activeLayerScore(candidate);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return bestScore >= 900 ? best : null;
+}
+
+function findActiveWorkArea(query) {
+  if (!hasMessageComposeIntent(query)) {
+    return null;
+  }
+  const editableSelector = [
+    "textarea",
+    "input:not([type='hidden']):not([type='button']):not([type='submit']):not([type='checkbox']):not([type='radio'])",
+    "[role='textbox']",
+    "[contenteditable]",
+    "[aria-multiline='true']"
+  ].join(",");
+  const editables = document.body ? Array.from(document.body.querySelectorAll(editableSelector)) : [];
+  let best = null;
+  let bestScore = 0;
+  for (const editable of editables) {
+    if (!isVisible(editable) || !inViewport(editable)) {
+      continue;
+    }
+    let current = editable;
+    let depth = 0;
+    while (current && current !== document.body && current !== document.documentElement && depth < 8) {
+      const rect = current.getBoundingClientRect();
+      const viewportWidth = window.innerWidth || 1;
+      const viewportHeight = window.innerHeight || 1;
+      const text = elementText(current);
+      const role = getRole(current);
+      const interactiveCount = modalInteractiveCount(current);
+      const listCount = current.querySelectorAll(
+        "[role='listitem'], [role='row'], li, article"
+      ).length;
+      const hasEditable = current.contains(editable);
+      if (rect.width >= 180 && rect.height >= 80 && hasEditable) {
+        let score = 1000;
+        if (["main", "region", "form", "dialog"].includes(role)) {
+          score += 180;
+        }
+        if (current.tagName.toLowerCase() === "main" || current.tagName.toLowerCase() === "form") {
+          score += 160;
+        }
+        if (interactiveCount >= 2) {
+          score += 120;
+        }
+        if (/\b(send|reply|message|compose)\b|отправ|ответ|сообщ/i.test(text)) {
+          score += 220;
+        }
+        if (rect.width < viewportWidth * 0.96) {
+          score += 120;
+        }
+        if (rect.height < viewportHeight * 0.98) {
+          score += 80;
+        }
+        score += Math.min(rect.width * rect.height / 10000, 160);
+        score -= Math.min(listCount, 30) * 35;
+        if (rect.width >= viewportWidth * 0.98 && rect.height >= viewportHeight * 0.98) {
+          score -= 650;
+        }
+        if (score > bestScore) {
+          best = current;
+          bestScore = score;
+        }
+      }
+      current = current.parentElement;
+      depth += 1;
+    }
+  }
+  return bestScore >= 900 ? best : null;
+}
+
 function findActionableAncestor(element) {
   let current = element;
   let depth = 0;
@@ -282,7 +505,7 @@ function queryMatchScore(element, sourceElement, terms, maxTextChars) {
   return terms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
 }
 
-function candidateFromElement(element, sourceElement, maxTextChars, terms) {
+function candidateFromElement(element, sourceElement, maxTextChars, terms, activeLayer, activeWorkArea) {
   const tag = element.tagName.toLowerCase();
   const selector = buildSelector(element);
   const sourceText = sourceElement && sourceElement !== element ? elementText(sourceElement) : "";
@@ -291,6 +514,8 @@ function candidateFromElement(element, sourceElement, maxTextChars, terms) {
   const isClickable = isClickableElement(element);
   const rect = rectData(element);
   const candidateInViewport = inViewport(element);
+  const insideActiveLayer = activeLayer ? activeLayer.contains(element) : true;
+  const insideActiveWorkArea = activeWorkArea ? activeWorkArea.contains(element) : true;
 
   return {
     tag,
@@ -321,6 +546,10 @@ function candidateFromElement(element, sourceElement, maxTextChars, terms) {
     center_occluded: centerOccluded(element),
     rect,
     selector_stability: selectorStability(selector),
+    inside_active_layer: insideActiveLayer,
+    active_layer_selector: activeLayer ? buildSelector(activeLayer) : null,
+    inside_active_work_area: insideActiveWorkArea,
+    active_work_area_selector: activeWorkArea ? buildSelector(activeWorkArea) : null,
     nearby_text: nearbyText(element, sourceElement, maxTextChars),
   };
 }
@@ -343,6 +572,11 @@ function candidateRank(record, terms, maxTextChars) {
   if (hasUsableLabel(element)) {
     rank += 20;
   }
+  if (record.activeWorkArea && record.activeWorkArea.contains(element)) {
+    rank += 900;
+  } else if (record.activeWorkArea) {
+    rank -= 900;
+  }
   if (Boolean(element.disabled) || element.getAttribute("aria-disabled") === "true") {
     rank -= 1000;
   }
@@ -351,6 +585,9 @@ function candidateRank(record, terms, maxTextChars) {
 
 function extractDomCandidates(options) {
   const terms = queryTerms(options.query || "");
+  const activeLayer = findActiveLayer();
+  const activeWorkArea = activeLayer ? null : findActiveWorkArea(options.query || "");
+  const root = activeLayer || activeWorkArea || document;
   const selector = [
     "button",
     "a",
@@ -387,6 +624,12 @@ function extractDomCandidates(options) {
     if (!element || element.nodeType !== Node.ELEMENT_NODE || !isVisible(element)) {
       return;
     }
+    if (activeLayer && !activeLayer.contains(element)) {
+      return;
+    }
+    if (activeWorkArea && !activeWorkArea.contains(element)) {
+      return;
+    }
     if (!isClickableElement(element) && !isEditableElement(element) && !hasUsableLabel(element)) {
       return;
     }
@@ -394,6 +637,7 @@ function extractDomCandidates(options) {
       element,
       sourceElement: sourceElement || element,
       bonus: bonus || 0,
+      activeWorkArea,
       order: order++,
     };
     record.rank = candidateRank(record, terms, options.maxTextChars);
@@ -403,11 +647,11 @@ function extractDomCandidates(options) {
     }
   }
 
-  for (const element of Array.from(document.querySelectorAll(selector))) {
+  for (const element of Array.from(root.querySelectorAll(selector))) {
     addElement(element, element, 40);
   }
 
-  const bodyElements = document.body ? Array.from(document.body.querySelectorAll("*")) : [];
+  const bodyElements = root ? Array.from(root.querySelectorAll("*")) : [];
   for (const element of bodyElements) {
     if (!isVisible(element)) {
       continue;
@@ -441,7 +685,9 @@ function extractDomCandidates(options) {
       record.element,
       record.sourceElement,
       options.maxTextChars,
-      terms
+      terms,
+      activeLayer,
+      activeWorkArea
     );
     if (!candidate.visible || seenSelectors.has(candidate.selector)) {
       continue;

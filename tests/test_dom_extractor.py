@@ -159,3 +159,110 @@ async def test_dom_extractor_marks_nth_of_type_selector_low_stability() -> None:
     plain = next(candidate for candidate in candidates if "Plain action" in candidate.text)
     assert ":nth-of-type(" in plain.selector
     assert plain.selector_stability == "low"
+
+
+@pytest.mark.asyncio
+async def test_dom_extractor_focuses_active_modal_layer() -> None:
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        page = await browser.new_page(viewport={"width": 1000, "height": 700})
+        await page.set_content(
+            """
+            <main>
+              <button id="background-apply">Apply to vacancy</button>
+              <section>
+                <button id="background-cover">Add cover letter below page</button>
+              </section>
+            </main>
+            <div
+              id="response-modal"
+              role="dialog"
+              aria-modal="true"
+              style="position:fixed;left:260px;top:120px;width:460px;min-height:260px;background:white;z-index:1000"
+            >
+              <h2>Vacancy response</h2>
+              <button id="modal-cover">Add cover letter</button>
+              <button id="modal-apply">Apply now</button>
+            </div>
+            """
+        )
+
+        candidates = await DOMExtractor(Settings()).extract(page, query="apply cover letter")
+        await browser.close()
+
+    selectors = {candidate.selector for candidate in candidates}
+    assert "#modal-apply" in selectors
+    assert "#modal-cover" in selectors
+    assert "#background-apply" not in selectors
+    assert "#background-cover" not in selectors
+    modal_apply = next(candidate for candidate in candidates if candidate.selector == "#modal-apply")
+    assert modal_apply.active_layer_selector == "#response-modal"
+    assert modal_apply.inside_active_layer is True
+
+
+@pytest.mark.asyncio
+async def test_dom_extractor_focuses_active_chat_work_area_for_message_input() -> None:
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        page = await browser.new_page(viewport={"width": 1200, "height": 760})
+        await page.set_content(
+            """
+            <main id="app" style="display:grid;grid-template-columns:320px 1fr;height:720px">
+              <aside id="chat-list" role="list">
+                <button id="chat-alex" role="listitem">Alex Chat</button>
+                <button id="chat-maria" role="listitem">Maria Chat</button>
+              </aside>
+              <section id="active-chat" role="main" aria-label="Active chat">
+                <h1>Alex Chat</h1>
+                <div id="messages">
+                  <article role="listitem">Alex: previous message</article>
+                </div>
+                <form id="composer">
+                  <div id="message-input" role="textbox" contenteditable="true" aria-label="Message"></div>
+                  <button id="send-message">Send message</button>
+                </form>
+              </section>
+            </main>
+            """
+        )
+
+        candidates = await DOMExtractor(Settings()).extract(page, query="write and send message")
+        await browser.close()
+
+    selectors = {candidate.selector for candidate in candidates}
+    assert "#message-input" in selectors
+    assert "#send-message" in selectors
+    assert "#chat-alex" not in selectors
+    message_input = next(candidate for candidate in candidates if candidate.selector == "#message-input")
+    assert message_input.active_work_area_selector in {"#active-chat", "#composer"}
+    assert message_input.inside_active_work_area is True
+
+
+@pytest.mark.asyncio
+async def test_dom_extractor_keeps_chat_list_available_for_switch_chat_query() -> None:
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        page = await browser.new_page(viewport={"width": 1200, "height": 760})
+        await page.set_content(
+            """
+            <main id="app" style="display:grid;grid-template-columns:320px 1fr;height:720px">
+              <aside id="chat-list" role="list">
+                <button id="chat-alex" role="listitem">Alex Chat</button>
+                <button id="chat-maria" role="listitem">Maria Chat</button>
+              </aside>
+              <section id="active-chat" role="main" aria-label="Active chat">
+                <h1>Alex Chat</h1>
+                <form id="composer">
+                  <div id="message-input" role="textbox" contenteditable="true" aria-label="Message"></div>
+                  <button id="send-message">Send message</button>
+                </form>
+              </section>
+            </main>
+            """
+        )
+
+        candidates = await DOMExtractor(Settings()).extract(page, query="open Maria chat")
+        await browser.close()
+
+    selectors = {candidate.selector for candidate in candidates}
+    assert "#chat-maria" in selectors
