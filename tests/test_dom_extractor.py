@@ -98,3 +98,64 @@ async def test_dom_extractor_includes_pointer_cursor_spa_controls() -> None:
     spa_control = next(candidate for candidate in candidates if candidate.selector == "#open-chat")
     assert spa_control.is_clickable is True
     assert spa_control.query_match_score >= 2
+
+
+@pytest.mark.asyncio
+async def test_dom_extractor_excludes_elements_outside_viewport() -> None:
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        page = await browser.new_page(viewport={"width": 800, "height": 600})
+        await page.set_content(
+            """
+            <main style="height: 2000px">
+              <button id="offscreen" style="position:absolute;top:1400px">Delete email</button>
+              <button id="onscreen">Search</button>
+            </main>
+            """
+        )
+
+        candidates = await DOMExtractor(Settings()).extract(page, query="delete email")
+        await browser.close()
+
+    assert all(candidate.selector != "#offscreen" for candidate in candidates)
+    assert any(candidate.selector == "#onscreen" for candidate in candidates)
+
+
+@pytest.mark.asyncio
+async def test_dom_extractor_marks_center_occluded() -> None:
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        page = await browser.new_page(viewport={"width": 800, "height": 600})
+        await page.set_content(
+            """
+            <button id="target" style="position:absolute;left:20px;top:20px;width:180px;height:60px">
+              Delete email
+            </button>
+            <div id="overlay" style="position:absolute;left:20px;top:20px;width:180px;height:60px;z-index:10">
+              Overlay
+            </div>
+            """
+        )
+
+        candidates = await DOMExtractor(Settings()).extract(page, query="delete email")
+        await browser.close()
+
+    target = next(candidate for candidate in candidates if candidate.selector == "#target")
+    assert target.in_viewport is True
+    assert target.center_occluded is True
+    assert target.rect["width"] == 180
+
+
+@pytest.mark.asyncio
+async def test_dom_extractor_marks_nth_of_type_selector_low_stability() -> None:
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        page = await browser.new_page()
+        await page.set_content("<main><button>Plain action</button></main>")
+
+        candidates = await DOMExtractor(Settings()).extract(page, query="plain action")
+        await browser.close()
+
+    plain = next(candidate for candidate in candidates if "Plain action" in candidate.text)
+    assert ":nth-of-type(" in plain.selector
+    assert plain.selector_stability == "low"

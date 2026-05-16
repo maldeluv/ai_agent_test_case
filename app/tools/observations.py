@@ -19,15 +19,36 @@ async def get_current_page_info(input_data: BaseModel, context: ToolContext) -> 
         except Exception:
             visible_text = ""
 
+        tabs = []
+        tabs_error = None
+        list_pages = getattr(context.browser, "list_pages", None)
+        if list_pages is not None:
+            try:
+                tabs = await list_pages()
+            except Exception as exc:
+                tabs = []
+                tabs_error = f"{type(exc).__name__}: {exc}"
+        active_tab_index = next(
+            (tab["index"] for tab in tabs if tab.get("active") is True),
+            None,
+        )
+
         return ToolResult.success(
             tool_name="get_current_page_info",
             message="Current page info collected",
             data={
                 "url": page.url,
                 "title": title,
+                "active_tab_index": active_tab_index,
+                "tabs": tabs,
+                "tabs_error": tabs_error,
                 "short_visible_text": truncate_text(
                     visible_text,
                     max_chars=context.browser.settings.short_visible_text_chars,
+                ),
+                "hint": (
+                    "If this visible text does not match the expected page, call list_tabs "
+                    "and switch_tab before deciding the content is missing."
                 ),
             },
         )

@@ -11,6 +11,7 @@ from app.agent.loop import MainAgentLoop
 from app.agent.schemas import AgentRunResult
 from app.browser.session import BrowserSession
 from app.config import get_settings
+from app.safety import SafetyGuard
 from app.tools import create_default_tool_registry
 from app.utils.logger import configure_logging, get_console, get_logger
 
@@ -19,8 +20,10 @@ def compose_session_task(
     *,
     current_message: str,
     session_history: list[tuple[str, AgentRunResult]],
+    pending_approvals: list[dict[str, object]] | None = None,
 ) -> str:
-    if not session_history:
+    pending_approvals = pending_approvals or []
+    if not session_history and not pending_approvals:
         return current_message
 
     history_lines = []
@@ -34,12 +37,35 @@ def compose_session_task(
         if result.debug_context:
             history_lines.append(f"   Debug context: {result.debug_context}")
 
+    pending_text = ""
+    if pending_approvals:
+        pending_lines = []
+        for approval in pending_approvals:
+            pending_lines.append(
+                (
+                    f"- approval_id={approval.get('approval_id')}; "
+                    f"tool={approval.get('tool_name')}; "
+                    f"action={approval.get('action_description')}; "
+                    f"target={approval.get('target_context')}"
+                )
+            )
+        pending_text = (
+            "\nPending risky approvals in this browser session:\n"
+            f"{chr(10).join(pending_lines)}\n"
+        )
+
+    history_text = (
+        "Recent session history:\n"
+        f"{chr(10).join(history_lines)}\n\n"
+        if history_lines
+        else ""
+    )
     return (
         "This is a continuation in the same open browser session.\n"
         "Use the current browser state as the source of truth. The user may be "
         "refining, correcting, approving, or extending the previous task.\n\n"
-        "Recent session history:\n"
-        f"{chr(10).join(history_lines)}\n\n"
+        f"{history_text}"
+        f"{pending_text}\n"
         "Current user message:\n"
         f"{current_message}"
     )
@@ -83,17 +109,29 @@ async def run_cli(task: str, wait_for_exit: bool, interactive: bool) -> None:
         else:
             current_message: str | None = task
             session_history: list[tuple[str, AgentRunResult]] = []
+            safety_guard = SafetyGuard(console=console)
             while current_message:
                 console.print(f"[bold]You:[/bold] {current_message}")
+                auto_approved_id = safety_guard.approve_followup_text(current_message)
+                message_for_agent = current_message
+                if auto_approved_id is not None:
+                    message_for_agent = (
+                        f"{current_message}\n\n"
+                        f"The user explicitly approved pending risky action "
+                        f"approval_id={auto_approved_id}. Continue by retrying only "
+                        "the exact approved action if it is still appropriate."
+                    )
                 agent = MainAgentLoop(
                     settings=settings,
                     browser=browser,
                     registry=tool_registry,
+                    safety_guard=safety_guard,
                     console=console,
                 )
                 effective_task = compose_session_task(
-                    current_message=current_message,
+                    current_message=message_for_agent,
                     session_history=session_history,
+                    pending_approvals=safety_guard.describe_pending_approvals(),
                 )
                 result = await agent.run(effective_task)
                 session_history.append((current_message, result))

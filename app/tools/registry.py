@@ -84,15 +84,32 @@ class ToolRegistry:
             )
 
         if context.safety_guard is not None:
+            browser_context = await self._browser_context_for_safety(context)
             safety_result = context.safety_guard.check_tool_call(
                 tool_name=name,
                 arguments=validated.model_dump(mode="json", exclude_none=True),
+                browser_context=browser_context,
             )
             if safety_result is not None:
                 return safety_result
+        else:
+            browser_context = {}
 
         try:
-            return await definition.handler(validated, context)
+            result = await definition.handler(validated, context)
+            if context.safety_guard is not None and result.ok:
+                self._record_tool_evidence(
+                    name=name,
+                    result=result,
+                    context=context,
+                    browser_context=browser_context,
+                )
+                context.safety_guard.consume_approval_for_tool_call(
+                    tool_name=name,
+                    arguments=validated.model_dump(mode="json", exclude_none=True),
+                    browser_context=browser_context,
+                )
+            return result
         except Exception as exc:
             return ToolResult.failure(
                 tool_name=name,
@@ -102,24 +119,80 @@ class ToolRegistry:
                 next_hint="Inspect current page state before retrying.",
             )
 
+    def _record_tool_evidence(
+        self,
+        *,
+        name: str,
+        result: ToolResult,
+        context: ToolContext,
+        browser_context: dict[str, Any],
+    ) -> None:
+        if context.safety_guard is None:
+            return
+        if name not in {
+            "extract_visible_items",
+            "classify_items_with_evidence",
+            "prepare_batch_action_confirmation",
+        }:
+            return
+        raw_items = result.data.get("items")
+        if not isinstance(raw_items, list):
+            return
+        context.safety_guard.record_classified_items(
+            items=[item for item in raw_items if isinstance(item, dict)],
+            browser_context=browser_context,
+        )
+
+    async def _browser_context_for_safety(self, context: ToolContext) -> dict[str, Any]:
+        page_context: dict[str, Any] = {}
+        try:
+            page = await context.browser.get_active_page()
+            page_context["active_url"] = getattr(page, "url", "")
+        except Exception as exc:
+            page_context["active_page_error"] = f"{type(exc).__name__}: {exc}"
+            return page_context
+
+        list_pages = getattr(context.browser, "list_pages", None)
+        if list_pages is not None:
+            try:
+                tabs = await list_pages()
+                active_tab_index = next(
+                    (tab["index"] for tab in tabs if tab.get("active") is True),
+                    None,
+                )
+                page_context["active_tab_index"] = active_tab_index
+            except Exception as exc:
+                page_context["tabs_error"] = f"{type(exc).__name__}: {exc}"
+        return page_context
+
 
 def create_default_tool_registry() -> ToolRegistry:
     from app.tools.control import ask_user_confirmation, finish_task, take_screenshot, wait
-    from app.tools.content import extract_visible_items
+    from app.tools.content import (
+        classify_items_with_evidence,
+        collect_visible_items,
+        extract_visible_items,
+        prepare_batch_action_confirmation,
+    )
     from app.tools.dom_query import query_dom
     from app.tools.interactions import click_element, scroll_element, scroll_page, type_text
     from app.tools.navigation import go_back, navigate_to_url
     from app.tools.observations import get_current_page_info
+    from app.tools.tabs import list_tabs, switch_tab
     from app.tools.schemas import (
         AskUserConfirmationInput,
+        ClassifyItemsWithEvidenceInput,
         ClickElementInput,
+        CollectVisibleItemsInput,
         EmptyInput,
         ExtractVisibleItemsInput,
         FinishTaskInput,
         NavigateToUrlInput,
+        PrepareBatchActionConfirmationInput,
         QueryDomInput,
         ScrollElementInput,
         ScrollPageInput,
+        SwitchTabInput,
         TakeScreenshotInput,
         TypeTextInput,
         WaitInput,
@@ -143,9 +216,30 @@ def create_default_tool_registry() -> ToolRegistry:
     )
     registry.register(
         name="get_current_page_info",
-        description="Collect URL, title, and compact visible text from the active page.",
+        description=(
+            "Collect URL, title, compact visible text, and browser tab summary "
+            "from the active page."
+        ),
         input_model=EmptyInput,
         handler=get_current_page_info,
+    )
+    registry.register(
+        name="list_tabs",
+        description=(
+            "List open browser tabs with index, URL, title, and active flag. "
+            "Use this when a click or website may have opened a new tab."
+        ),
+        input_model=EmptyInput,
+        handler=list_tabs,
+    )
+    registry.register(
+        name="switch_tab",
+        description=(
+            "Switch the active browser page to a tab index returned by list_tabs "
+            "or get_current_page_info."
+        ),
+        input_model=SwitchTabInput,
+        handler=switch_tab,
     )
     registry.register(
         name="wait",
@@ -227,6 +321,37 @@ def create_default_tool_registry() -> ToolRegistry:
         ),
         input_model=ExtractVisibleItemsInput,
         handler=extract_visible_items,
+    )
+    registry.register(
+        name="collect_visible_items",
+        description=(
+            "Collect unique visible repeated items across the current viewport and "
+            "scroll steps. Use this for mail inboxes, virtualized lists, tables, "
+            "feeds, and search results when a task asks for N visible items. Returns "
+            "source_text, selectors, controls, scroll container, and availability count."
+        ),
+        input_model=CollectVisibleItemsInput,
+        handler=collect_visible_items,
+    )
+    registry.register(
+        name="classify_items_with_evidence",
+        description=(
+            "Classify or analyze a provided list of visible items using only their "
+            "source_text and controls. Use after collect_visible_items before risky "
+            "batch actions such as deleting or marking spam."
+        ),
+        input_model=ClassifyItemsWithEvidenceInput,
+        handler=classify_items_with_evidence,
+    )
+    registry.register(
+        name="prepare_batch_action_confirmation",
+        description=(
+            "Prepare exact ask_user_confirmation and click_element arguments for "
+            "a risky batch action from classified visible item evidence. Use after "
+            "classify_items_with_evidence and before deleting or marking spam."
+        ),
+        input_model=PrepareBatchActionConfirmationInput,
+        handler=prepare_batch_action_confirmation,
     )
     registry.register(
         name="finish_task",

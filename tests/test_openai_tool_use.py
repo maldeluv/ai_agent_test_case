@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from app.config import Settings
 from app.llm.openai_client import OpenAIClient
 from app.llm.tool_use import tool_definitions_for_openai
@@ -106,6 +108,85 @@ def test_openai_client_keeps_compact_state_text_with_tool_outputs() -> None:
         "role": "user",
         "content": "Compact execution summary",
     }
+
+
+def test_openai_client_stateless_mode_keeps_compact_state_without_previous_chain() -> None:
+    client = OpenAIClient.__new__(OpenAIClient)
+    client._use_previous_response_id = False
+    client._previous_response_id = "resp_123"
+    messages = [
+        {"role": "user", "content": "Compact execution summary: before tool"},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "call_123",
+                    "name": "get_current_page_info",
+                    "input": {},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_123",
+                    "content": '{"ok": true}',
+                },
+                {
+                    "type": "text",
+                    "text": "Compact execution summary: after tool",
+                },
+            ],
+        },
+    ]
+
+    input_items = client._build_input_items(messages)
+
+    assert {"role": "user", "content": "Compact execution summary: before tool"} in input_items
+    assert {
+        "type": "function_call_output",
+        "call_id": "call_123",
+        "output": '{"ok": true}',
+    } in input_items
+    assert input_items[-1] == {
+        "role": "user",
+        "content": "Compact execution summary: after tool",
+    }
+
+
+class FakeResponses:
+    def __init__(self) -> None:
+        self.request: dict[str, object] | None = None
+
+    async def create(self, **request: object) -> object:
+        self.request = request
+        return SimpleNamespace(id="resp_next", output=[])
+
+
+@pytest.mark.asyncio
+async def test_openai_client_does_not_send_previous_response_id_by_default() -> None:
+    responses = FakeResponses()
+    client = OpenAIClient.__new__(OpenAIClient)
+    client.model = "gpt-test"
+    client.max_output_tokens = 1000
+    client._client = SimpleNamespace(responses=responses)
+    client._use_previous_response_id = False
+    client._previous_response_id = "resp_123"
+
+    await client.create_message(
+        system="system",
+        messages=[{"role": "user", "content": "Compact execution summary"}],
+        tools=[],
+    )
+
+    assert responses.request is not None
+    assert "previous_response_id" not in responses.request
+    assert responses.request["input"] == [
+        {"role": "user", "content": "Compact execution summary"}
+    ]
 
 
 def test_openai_key_controls_active_llm_key_detection() -> None:

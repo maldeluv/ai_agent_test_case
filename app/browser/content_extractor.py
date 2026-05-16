@@ -81,6 +81,58 @@ function rectData(element) {
   };
 }
 
+function inViewport(element) {
+  const rect = element.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  let left = Math.max(rect.left, 0);
+  let top = Math.max(rect.top, 0);
+  let right = Math.min(rect.right, viewportWidth);
+  let bottom = Math.min(rect.bottom, viewportHeight);
+  let current = element.parentElement;
+  while (current && current !== document.body && current !== document.documentElement) {
+    const style = window.getComputedStyle(current);
+    const clips = ["auto", "scroll", "hidden", "clip"].includes(style.overflowY) ||
+      ["auto", "scroll", "hidden", "clip"].includes(style.overflowX);
+    if (clips) {
+      const parentRect = current.getBoundingClientRect();
+      left = Math.max(left, parentRect.left);
+      top = Math.max(top, parentRect.top);
+      right = Math.min(right, parentRect.right);
+      bottom = Math.min(bottom, parentRect.bottom);
+    }
+    current = current.parentElement;
+  }
+  return rect.width > 0 && rect.height > 0 && right > left && bottom > top;
+}
+
+function centerOccluded(element) {
+  if (!inViewport(element)) {
+    return false;
+  }
+  const rect = element.getBoundingClientRect();
+  const x = Math.min(Math.max(rect.left + rect.width / 2, 0), (window.innerWidth || 1) - 1);
+  const y = Math.min(Math.max(rect.top + rect.height / 2, 0), (window.innerHeight || 1) - 1);
+  const topElement = document.elementFromPoint(x, y);
+  return Boolean(topElement && !element.contains(topElement) && !topElement.contains(element));
+}
+
+function selectorStability(selector) {
+  if (!selector || selector.includes(":nth-of-type(")) {
+    return "low";
+  }
+  if (
+    selector.includes("#") ||
+    selector.includes("data-testid") ||
+    selector.includes("data-test") ||
+    selector.includes("data-qa") ||
+    selector.includes("[name=")
+  ) {
+    return "high";
+  }
+  return "medium";
+}
+
 function normalizedClass(element) {
   return String(element.getAttribute("class") || "")
     .split(/\s+/)
@@ -287,7 +339,7 @@ function isReasonableItem(element, options) {
   }
   const rect = element.getBoundingClientRect();
   const text = visibleText(element, options.maxTextChars + 1);
-  return text.length >= 8 && rect.width >= 80 && rect.height >= 8;
+  return text.length >= 8 && rect.width >= 80 && rect.height >= 8 && inViewport(element);
 }
 
 function addRecord(recordsByElement, element, kind, bonus, options, terms, order) {
@@ -386,12 +438,14 @@ function addQueryMatchedBlocks(recordsByElement, options, terms, order) {
 function itemFromRecord(record, index, options) {
   const element = record.element;
   const rect = rectData(element);
+  const selector = buildSelector(element);
   return {
     index,
-    selector: buildSelector(element),
+    selector,
     tag: element.tagName.toLowerCase(),
     role: compactAttr(element, "role", 80),
     text: visibleText(element, options.maxTextChars),
+    source_text: visibleText(element, options.maxTextChars),
     aria_label: compactAttr(element, "aria-label", 160),
     title: compactAttr(element, "title", 160),
     source_kind: sourceKind(element, record.kind),
@@ -399,6 +453,10 @@ function itemFromRecord(record, index, options) {
     y: rect.y,
     width: rect.width,
     height: rect.height,
+    in_viewport: inViewport(element),
+    center_occluded: centerOccluded(element),
+    rect,
+    selector_stability: selectorStability(selector),
     scroll_container_selector: findScrollContainer(element),
     controls: collectControls(
       element,

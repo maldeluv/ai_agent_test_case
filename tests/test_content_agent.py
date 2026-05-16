@@ -26,6 +26,23 @@ class FakeContentClient:
         return SimpleNamespace(content=[{"type": "text", "text": self.text}])
 
 
+class SequenceContentClient:
+    def __init__(self, texts: list[str]) -> None:
+        self.texts = texts
+        self.calls: list[dict[str, Any]] = []
+
+    async def create_message(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> Any:
+        self.calls.append({"system": system, "messages": messages, "tools": tools})
+        index = min(len(self.calls) - 1, len(self.texts) - 1)
+        return SimpleNamespace(content=[{"type": "text", "text": self.texts[index]}])
+
+
 def visible_email(index: int = 1) -> VisibleItem:
     return VisibleItem(
         index=index,
@@ -148,3 +165,86 @@ async def test_content_agent_limits_payload_size() -> None:
     payload = client.calls[0]["messages"][0]["content"]
     assert len(payload) <= settings.content_query_payload_max_chars
     assert "x" * 200 not in payload
+
+
+@pytest.mark.asyncio
+async def test_content_agent_repairs_malformed_json_once() -> None:
+    client = SequenceContentClient(
+        [
+            "not json",
+            """
+            {
+              "found": true,
+              "answer": "One likely spam email found.",
+              "items": [
+                {
+                  "index": 1,
+                  "item_type": "email",
+                  "fields": {"sender": "Promo Shop"},
+                  "summary": "Promotional sale email",
+                  "classification": "spam",
+                  "reason": "Promotional language",
+                  "recommended_action": "delete_or_mark_spam",
+                  "confidence": 0.8
+                }
+              ]
+            }
+            """,
+        ]
+    )
+    agent = ContentSubAgent(Settings(), client=client)
+
+    result = await agent.analyze(query="classify inbox spam", items=[visible_email()])
+
+    assert result.found is True
+    assert result.items[0].fields["sender"] == "Promo Shop"
+    assert len(client.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_content_agent_discards_invented_selector_and_unsupported_fields() -> None:
+    client = FakeContentClient(
+        """
+        {
+          "found": true,
+          "answer": "Invented details",
+          "items": [
+            {
+              "index": 1,
+              "selector": "#invented",
+              "item_type": "email",
+              "fields": {
+                "sender": "Imaginary Sender",
+                "subject": "Huge sale today"
+              },
+              "summary": "Promotional sale email",
+              "classification": "spam",
+              "reason": "Promotional language",
+              "recommended_action": "delete_or_mark_spam",
+              "confidence": 0.92
+            }
+          ]
+        }
+        """
+    )
+    agent = ContentSubAgent(Settings(), client=client)
+
+    result = await agent.analyze(query="classify inbox spam", items=[visible_email()])
+
+    assert result.found is True
+    assert result.items[0].selector == "#mail-1"
+    assert "sender" not in result.items[0].fields
+    assert result.items[0].fields["subject"] == "Huge sale today"
+    assert result.items[0].confidence <= 0.35
+
+
+@pytest.mark.asyncio
+async def test_content_agent_returns_structured_failure_after_bad_repair() -> None:
+    client = SequenceContentClient(["not json", "still not json"])
+    agent = ContentSubAgent(Settings(), client=client)
+
+    result = await agent.analyze(query="classify inbox spam", items=[visible_email()])
+
+    assert result.found is False
+    assert result.error_code == "invalid_subagent_json"
+    assert result.raw_preview

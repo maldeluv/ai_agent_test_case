@@ -72,14 +72,48 @@ class DOMSubAgent:
             )
 
         content = self._build_payload(query=query, candidates=candidates)
-        response = await self.client.create_message(
-            system=DOM_SUB_AGENT_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": content}],
-            tools=[],
-        )
-        text = self._response_text(response)
-        parsed = DomQueryData.model_validate_json(self._extract_json_object(text))
+        parsed = await self._request_json_with_repair(content)
+        if parsed.error_code:
+            return parsed
         return self._filter_to_candidate_selectors(parsed, candidates)
+
+    async def _request_json_with_repair(self, content: str) -> DomQueryData:
+        raw_text = ""
+        last_error: Exception | None = None
+        messages = [{"role": "user", "content": content}]
+        for attempt in range(2):
+            response = await self.client.create_message(
+                system=DOM_SUB_AGENT_SYSTEM_PROMPT,
+                messages=messages,
+                tools=[],
+            )
+            raw_text = self._response_text(response)
+            try:
+                return DomQueryData.model_validate_json(
+                    self._extract_json_object(raw_text)
+                )
+            except Exception as exc:
+                last_error = exc
+                messages = [
+                    {"role": "user", "content": content},
+                    {
+                        "role": "user",
+                        "content": (
+                            "The previous response was not valid strict JSON for the "
+                            "required schema. Repair it now. Return only one JSON object. "
+                            f"Parser error: {type(exc).__name__}: {exc}. "
+                            f"Invalid response preview: {truncate_text(raw_text, max_chars=800)}"
+                        ),
+                    },
+                ]
+
+        return DomQueryData(
+            found=False,
+            answer="DOM Sub-Agent returned invalid JSON after retry.",
+            matches=[],
+            error_code="invalid_subagent_json",
+            raw_preview=truncate_text(raw_text or str(last_error), max_chars=1000),
+        )
 
     def _build_payload(self, *, query: str, candidates: list[DomCandidate]) -> str:
         compact_query = truncate_text(query, max_chars=1000)
@@ -163,9 +197,13 @@ class DOMSubAgent:
                 found=False,
                 answer=result.answer if result.answer else "No matching element found.",
                 matches=[],
+                error_code=result.error_code,
+                raw_preview=result.raw_preview,
             )
         return DomQueryData(
             found=result.found,
             answer=result.answer,
             matches=matches,
+            error_code=result.error_code,
+            raw_preview=result.raw_preview,
         )

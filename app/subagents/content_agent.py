@@ -87,14 +87,48 @@ class ContentSubAgent:
             )
 
         content = self._build_payload(query=query, items=items)
-        response = await self.client.create_message(
-            system=CONTENT_SUB_AGENT_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": content}],
-            tools=[],
-        )
-        text = self._response_text(response)
-        parsed = ContentQueryData.model_validate_json(self._extract_json_object(text))
+        parsed = await self._request_json_with_repair(content)
+        if parsed.error_code:
+            return parsed
         return self._attach_source_items(parsed, items)
+
+    async def _request_json_with_repair(self, content: str) -> ContentQueryData:
+        raw_text = ""
+        last_error: Exception | None = None
+        messages = [{"role": "user", "content": content}]
+        for attempt in range(2):
+            response = await self.client.create_message(
+                system=CONTENT_SUB_AGENT_SYSTEM_PROMPT,
+                messages=messages,
+                tools=[],
+            )
+            raw_text = self._response_text(response)
+            try:
+                return ContentQueryData.model_validate_json(
+                    self._extract_json_object(raw_text)
+                )
+            except Exception as exc:
+                last_error = exc
+                messages = [
+                    {"role": "user", "content": content},
+                    {
+                        "role": "user",
+                        "content": (
+                            "The previous response was not valid strict JSON for the "
+                            "required schema. Repair it now. Return only one JSON object. "
+                            f"Parser error: {type(exc).__name__}: {exc}. "
+                            f"Invalid response preview: {truncate_text(raw_text, max_chars=800)}"
+                        ),
+                    },
+                ]
+
+        return ContentQueryData(
+            found=False,
+            answer="Content Sub-Agent returned invalid JSON after retry.",
+            items=[],
+            error_code="invalid_subagent_json",
+            raw_preview=truncate_text(raw_text or str(last_error), max_chars=1000),
+        )
 
     def _build_payload(self, *, query: str, items: list[VisibleItem]) -> str:
         compact_query = truncate_text(query, max_chars=1000)
@@ -171,17 +205,23 @@ class ContentSubAgent:
             source_item = source_by_index.get(item.index)
             if source_item is None:
                 continue
+            validated_fields, confidence, reason, evidence = self._validate_visible_evidence(
+                item=item,
+                source_item=source_item,
+            )
             attached.append(
                 ContentItemAnalysis(
                     index=item.index,
-                    selector=item.selector or source_item.selector,
+                    selector=source_item.selector,
                     item_type=item.item_type,
-                    fields=item.fields,
+                    fields=validated_fields,
                     summary=item.summary,
                     classification=item.classification,
-                    reason=item.reason,
+                    reason=reason,
                     recommended_action=item.recommended_action,
-                    confidence=item.confidence,
+                    confidence=confidence,
+                    source_text=source_item.source_text or source_item.text,
+                    evidence=evidence,
                     scroll_container_selector=source_item.scroll_container_selector,
                     controls=source_item.controls,
                 )
@@ -192,9 +232,77 @@ class ContentSubAgent:
                 found=False,
                 answer=result.answer if result.answer else "No matching visible item found.",
                 items=[],
+                error_code=result.error_code,
+                raw_preview=result.raw_preview,
             )
         return ContentQueryData(
             found=result.found,
             answer=result.answer,
             items=attached,
+            error_code=result.error_code,
+            raw_preview=result.raw_preview,
         )
+
+    def _validate_visible_evidence(
+        self,
+        *,
+        item: ContentItemAnalysis,
+        source_item: VisibleItem,
+    ) -> tuple[dict[str, str], float, str | None, dict[str, str]]:
+        visible_source_text = source_item.source_text or source_item.text
+        source_text = self._normalize_evidence_text(visible_source_text)
+        control_text = self._normalize_evidence_text(
+            " ".join(
+                value
+                for control in source_item.controls
+                for value in (
+                    control.text,
+                    control.aria_label or "",
+                    control.title or "",
+                )
+            )
+        )
+        searchable = f"{source_text} {control_text}".strip()
+        fields: dict[str, str] = {}
+        dropped: list[str] = []
+        for key, value in item.fields.items():
+            value_text = str(value).strip()
+            if not value_text:
+                continue
+            if self._is_supported_by_source(value_text, searchable):
+                fields[key] = value_text
+            else:
+                dropped.append(key)
+
+        confidence = item.confidence
+        reason = item.reason
+        if dropped:
+            confidence = min(confidence, 0.35)
+            reason_suffix = (
+                "Dropped unsupported field(s) not present in visible source text: "
+                + ", ".join(sorted(dropped))
+                + "."
+            )
+            reason = f"{reason} {reason_suffix}".strip() if reason else reason_suffix
+
+        evidence = {
+            "source_text": visible_source_text,
+        }
+        for key, value in fields.items():
+            evidence[key] = value
+        return fields, confidence, reason, evidence
+
+    def _is_supported_by_source(self, value: str, normalized_source: str) -> bool:
+        normalized_value = self._normalize_evidence_text(value)
+        if not normalized_value:
+            return True
+        if normalized_value in normalized_source:
+            return True
+        tokens = [token for token in normalized_value.split(" ") if len(token) >= 3]
+        if not tokens:
+            return False
+        matched = sum(1 for token in tokens if token in normalized_source)
+        return matched == len(tokens)
+
+    def _normalize_evidence_text(self, value: str) -> str:
+        return " ".join(str(value or "").casefold().split())

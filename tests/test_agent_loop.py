@@ -127,6 +127,32 @@ class TextOnlyModelClient:
         )
 
 
+class FinishThenClickClient:
+    async def create_message(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> Any:
+        return SimpleNamespace(
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": "toolu_finish",
+                    "name": "finish_task",
+                    "input": {"status": "success", "summary": "Done first"},
+                },
+                {
+                    "type": "tool_use",
+                    "id": "toolu_click",
+                    "name": "record_click",
+                    "input": {},
+                },
+            ]
+        )
+
+
 async def huge_tool(_: BaseModel, __: ToolContext) -> ToolResult:
     return ToolResult.success(
         tool_name="huge_tool",
@@ -144,6 +170,12 @@ async def finish_task_for_test(input_data: BaseModel, _: ToolContext) -> ToolRes
     )
 
 
+async def record_click(_: BaseModel, context: ToolContext) -> ToolResult:
+    recorder = getattr(context.browser, "clicks")
+    recorder.append("clicked_after_finish")
+    return ToolResult.success(tool_name="record_click", message="Clicked")
+
+
 def compact_history_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(
@@ -157,6 +189,23 @@ def compact_history_registry() -> ToolRegistry:
         description="Finish.",
         input_model=FinishTaskInput,
         handler=finish_task_for_test,
+    )
+    return registry
+
+
+def finish_then_click_registry() -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(
+        name="finish_task",
+        description="Finish.",
+        input_model=FinishTaskInput,
+        handler=finish_task_for_test,
+    )
+    registry.register(
+        name="record_click",
+        description="Should not execute after finish_task.",
+        input_model=EmptyInput,
+        handler=record_click,
     )
     return registry
 
@@ -263,3 +312,22 @@ async def test_agent_loop_uses_text_only_response_as_summary() -> None:
 
     assert result.status == "need_user_input"
     assert result.summary == "Could not find the requested message input."
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_stops_processing_batch_after_finish_task() -> None:
+    browser = SimpleNamespace(clicks=[])
+    console = Console(file=StringIO(), force_terminal=False)
+    loop = MainAgentLoop(
+        settings=Settings(max_steps=3),
+        browser=browser,  # type: ignore[arg-type]
+        registry=finish_then_click_registry(),
+        client=FinishThenClickClient(),
+        console=console,
+    )
+
+    result = await loop.run("Finish and do not click")
+
+    assert result.status == "success"
+    assert result.summary == "Done first"
+    assert browser.clicks == []

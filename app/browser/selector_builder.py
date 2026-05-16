@@ -45,15 +45,15 @@ function selectorFromAttributes(element) {
   }
 
   const attributes = [
+    "data-testid",
+    "data-test",
+    "data-qa",
     "name",
     "aria-label",
     "placeholder",
     "title",
     "role",
     "type",
-    "data-testid",
-    "data-test",
-    "data-qa",
   ];
   for (const attrName of attributes) {
     const attrValue = element.getAttribute(attrName);

@@ -93,8 +93,12 @@ Recent actions:
 
 Context policy:
 - Do not assume hidden browser state beyond this compact state and current tool results.
+- If a click or website opens a new tab, use get_current_page_info/list_tabs/switch_tab
+  to continue on the correct tab.
 - Use query_dom before click_element or type_text when you need selectors.
 - Use extract_visible_items before claiming that a visible list/table/card collection cannot be read.
+- Use collect_visible_items for list/mail tasks that require a target item count across scrolling.
+- Use prepare_batch_action_confirmation before confirmed batch delete/spam actions.
 - Do not ask for full HTML; only compact observations are available.
 """
         max_chars = (

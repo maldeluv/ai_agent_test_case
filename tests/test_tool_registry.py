@@ -24,6 +24,8 @@ async def test_default_registry_contains_base_tools() -> None:
         "navigate_to_url",
         "go_back",
         "get_current_page_info",
+        "list_tabs",
+        "switch_tab",
         "wait",
         "take_screenshot",
         "ask_user_confirmation",
@@ -33,6 +35,9 @@ async def test_default_registry_contains_base_tools() -> None:
         "scroll_element",
         "query_dom",
         "extract_visible_items",
+        "collect_visible_items",
+        "classify_items_with_evidence",
+        "prepare_batch_action_confirmation",
         "finish_task",
     }
 

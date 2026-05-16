@@ -113,6 +113,25 @@ browser_profile/
 
 Ошибки не роняют приложение. Они возвращаются в LLM как структурированный `tool_result` с `error_code` и `next_hint`.
 
+## Tab Management
+
+Some sites open important screens in a new browser tab. Mail inboxes, auth
+flows, file previews, and external links can all do this. The agent tracks new
+Playwright pages and treats the newest opened tab as active.
+
+Tab-aware tools:
+
+- `get_current_page_info` now includes `active_tab_index` and a compact `tabs`
+  list.
+- `list_tabs` returns all open tabs with index, title, URL, and active flag.
+- `switch_tab` changes the active browser tab by index.
+- `click_element` reports `opened_or_switched_tab` and `active_url` after a
+  click, so the agent can continue from a newly opened page instead of reading
+  the old tab.
+
+Prompt guidance tells the agent to call `list_tabs`/`switch_tab` before
+claiming visible content is missing when a site may have opened a new tab.
+
 ## DOM Sub-Agent
 
 `query_dom` не отправляет полный HTML. Он делает `page.evaluate` и собирает только видимые интерактивные кандидаты:
@@ -397,3 +416,24 @@ another element intercepted the target. Recovery options are generic:
   larger clickable row;
 - refresh selectors with `query_dom` or `extract_visible_items`;
 - scroll or close overlays before retrying.
+
+## Reliability Hardening Notes
+
+Recent hardening adds `collect_visible_items`,
+`classify_items_with_evidence`, and `prepare_batch_action_confirmation` for
+mail/list workflows. Batch risky actions
+should use collected item evidence, pass the exact batch selectors/items in the
+risky tool call, ask for confirmation once, and retry only the confirmed batch.
+
+Safety approvals are single-use and context-bound. The structured signature now
+includes the active URL/tab and batch context, so an approval for one page or
+item set cannot be reused on another page or for another batch. When several
+risky actions are pending, `ask_user_confirmation` must include the exact
+`approval_id`.
+
+OpenAI `previous_response_id` chaining is disabled by default:
+
+```env
+OPENAI_USE_PREVIOUS_RESPONSE_ID=false
+BROWSER_NEW_TAB_TIMEOUT_MS=4000
+```

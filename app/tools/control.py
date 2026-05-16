@@ -78,7 +78,12 @@ async def ask_user_confirmation(input_data: BaseModel, context: ToolContext) -> 
             next_hint="Stop with finish_task(status='blocked') because confirmation cannot be collected.",
         )
 
-    approval_id = args.approval_id or context.safety_guard.latest_pending_approval_id
+    approval_id, approval_error = context.safety_guard.resolve_pending_approval_id(
+        args.approval_id
+    )
+    if approval_error is not None:
+        return approval_error
+
     approved = context.safety_guard.request_confirmation(
         reason=args.reason,
         action_description=args.action_description,

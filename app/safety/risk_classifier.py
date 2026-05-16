@@ -117,10 +117,27 @@ class RiskClassifier:
         relevant_values = [
             tool_name,
             str(arguments.get("action_description") or ""),
+            str(arguments.get("target_context") or ""),
             str(arguments.get("selector") or ""),
             str(arguments.get("text") or ""),
             str(arguments.get("url") or ""),
         ]
+        batch_items = arguments.get("batch_items") or []
+        if isinstance(batch_items, list):
+            for item in batch_items:
+                if isinstance(item, dict):
+                    relevant_values.extend(
+                        str(item.get(key) or "")
+                        for key in (
+                            "sender",
+                            "subject",
+                            "title",
+                            "snippet",
+                            "source_text",
+                            "selector",
+                            "control_selector",
+                        )
+                    )
         if tool_name == "type_text" and arguments.get("press_enter") is True:
             relevant_values.append("press enter to send")
         return " ".join(value for value in relevant_values if value).strip()

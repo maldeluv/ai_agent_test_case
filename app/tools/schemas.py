@@ -74,11 +74,37 @@ class TakeScreenshotInput(StrictBaseModel):
     full_page: bool = False
 
 
+class BatchActionItem(StrictBaseModel):
+    selector: str | None = None
+    control_selector: str | None = None
+    evidence_signature: str | None = None
+    item_index: int | None = Field(default=None, ge=1)
+    title: str | None = None
+    sender: str | None = None
+    subject: str | None = None
+    snippet: str | None = None
+    source_text: str | None = None
+
+
 class ClickElementInput(StrictBaseModel):
     selector: str = Field(min_length=1)
     action_description: str | None = Field(
         default=None,
         description="Brief description of the intended click, especially before risky actions.",
+    )
+    target_context: str | None = Field(
+        default=None,
+        description=(
+            "Brief visible context for the exact target or batch being acted on. "
+            "For batch risky actions include count and item/control selectors."
+        ),
+    )
+    batch_items: list[BatchActionItem] = Field(
+        default_factory=list,
+        description=(
+            "Exact visible items covered by a batch risky action, such as selected "
+            "emails to delete or mark as spam."
+        ),
     )
     position: Literal["center", "left", "right", "top", "bottom"] = Field(
         default="center",
@@ -137,12 +163,62 @@ class QueryDomInput(StrictBaseModel):
     query: str = Field(min_length=1)
 
 
+class SwitchTabInput(StrictBaseModel):
+    index: int = Field(ge=0)
+
+
 class ExtractVisibleItemsInput(StrictBaseModel):
     query: str = Field(
         min_length=1,
         description="What visible content/list/table/card items should be extracted and analyzed.",
     )
     max_items: int = Field(default=20, ge=1, le=100)
+
+
+class CollectVisibleItemsInput(StrictBaseModel):
+    query: str = Field(
+        min_length=1,
+        description="What visible list/table/card/mail items should be collected.",
+    )
+    target_count: int = Field(default=10, ge=1, le=100)
+    max_scroll_steps: int = Field(default=8, ge=0, le=50)
+    scroll_amount: int = Field(default=700, ge=50, le=10000)
+    container_selector: str | None = Field(
+        default=None,
+        description="Optional known inner scroll container selector.",
+    )
+
+
+class ClassifyItemsWithEvidenceInput(StrictBaseModel):
+    query: str = Field(
+        min_length=1,
+        description="Classification or analysis to perform on the provided visible evidence.",
+    )
+    items: list["VisibleItem"] = Field(
+        min_length=1,
+        description="Visible items previously returned by collect_visible_items or extract_visible_items.",
+    )
+
+
+class PrepareBatchActionConfirmationInput(StrictBaseModel):
+    action: Literal["delete", "mark_spam"]
+    action_selector: str = Field(
+        min_length=1,
+        description="Selector for the global action control to click after confirmation.",
+    )
+    items: list["ContentItemAnalysis"] = Field(
+        min_length=1,
+        description="Classified visible evidence items to include in the risky batch.",
+    )
+    classification_filter: list[str] = Field(
+        default_factory=lambda: ["spam", "suspicious"],
+        description="Only items with these classifications are included.",
+    )
+    min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    reason: str | None = Field(
+        default=None,
+        description="Optional user-facing reason for confirmation.",
+    )
 
 
 class DomCandidate(StrictBaseModel):
@@ -170,6 +246,10 @@ class DomCandidate(StrictBaseModel):
     query_match_score: int = 0
     disabled: bool = False
     visible: bool = True
+    in_viewport: bool = True
+    center_occluded: bool = False
+    rect: dict[str, float] = Field(default_factory=dict)
+    selector_stability: Literal["high", "medium", "low"] = "medium"
     nearby_text: str = ""
 
 
@@ -183,6 +263,8 @@ class DomQueryData(StrictBaseModel):
     found: bool
     answer: str
     matches: list[DomMatch] = Field(default_factory=list)
+    error_code: str | None = None
+    raw_preview: str | None = None
 
 
 class VisibleItemControl(StrictBaseModel):
@@ -206,10 +288,15 @@ class VisibleItem(StrictBaseModel):
     aria_label: str | None = None
     title: str | None = None
     source_kind: str = "unknown"
+    source_text: str | None = None
     x: float = 0.0
     y: float = 0.0
     width: float = 0.0
     height: float = 0.0
+    in_viewport: bool = True
+    center_occluded: bool = False
+    rect: dict[str, float] = Field(default_factory=dict)
+    selector_stability: Literal["high", "medium", "low"] = "medium"
     scroll_container_selector: str | None = None
     controls: list[VisibleItemControl] = Field(default_factory=list)
 
@@ -224,6 +311,8 @@ class ContentItemAnalysis(StrictBaseModel):
     reason: str | None = None
     recommended_action: str | None = None
     confidence: float = Field(ge=0.0, le=1.0)
+    source_text: str = ""
+    evidence: dict[str, str] = Field(default_factory=dict)
     scroll_container_selector: str | None = None
     controls: list[VisibleItemControl] = Field(default_factory=list)
 
@@ -232,6 +321,8 @@ class ContentQueryData(StrictBaseModel):
     found: bool
     answer: str
     items: list[ContentItemAnalysis] = Field(default_factory=list)
+    error_code: str | None = None
+    raw_preview: str | None = None
 
 
 class FinishTaskInput(StrictBaseModel):
@@ -243,3 +334,7 @@ class FinishTaskInput(StrictBaseModel):
         "need_user_input",
     ]
     summary: str = Field(min_length=1)
+
+
+ClassifyItemsWithEvidenceInput.model_rebuild()
+PrepareBatchActionConfirmationInput.model_rebuild()

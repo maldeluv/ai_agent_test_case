@@ -89,6 +89,68 @@ function getRole(element) {
   return (element.getAttribute("role") || "").toLowerCase();
 }
 
+function rectData(element) {
+  const rect = element.getBoundingClientRect();
+  return {
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  };
+}
+
+function inViewport(element) {
+  const rect = element.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  let left = Math.max(rect.left, 0);
+  let top = Math.max(rect.top, 0);
+  let right = Math.min(rect.right, viewportWidth);
+  let bottom = Math.min(rect.bottom, viewportHeight);
+  let current = element.parentElement;
+  while (current && current !== document.body && current !== document.documentElement) {
+    const style = window.getComputedStyle(current);
+    const clips = ["auto", "scroll", "hidden", "clip"].includes(style.overflowY) ||
+      ["auto", "scroll", "hidden", "clip"].includes(style.overflowX);
+    if (clips) {
+      const parentRect = current.getBoundingClientRect();
+      left = Math.max(left, parentRect.left);
+      top = Math.max(top, parentRect.top);
+      right = Math.min(right, parentRect.right);
+      bottom = Math.min(bottom, parentRect.bottom);
+    }
+    current = current.parentElement;
+  }
+  return rect.width > 0 && rect.height > 0 && right > left && bottom > top;
+}
+
+function centerOccluded(element) {
+  if (!inViewport(element)) {
+    return false;
+  }
+  const rect = element.getBoundingClientRect();
+  const x = Math.min(Math.max(rect.left + rect.width / 2, 0), (window.innerWidth || 1) - 1);
+  const y = Math.min(Math.max(rect.top + rect.height / 2, 0), (window.innerHeight || 1) - 1);
+  const topElement = document.elementFromPoint(x, y);
+  return Boolean(topElement && !element.contains(topElement) && !topElement.contains(element));
+}
+
+function selectorStability(selector) {
+  if (!selector || selector.includes(":nth-of-type(")) {
+    return "low";
+  }
+  if (
+    selector.includes("#") ||
+    selector.includes("data-testid") ||
+    selector.includes("data-test") ||
+    selector.includes("data-qa") ||
+    selector.includes("[name=")
+  ) {
+    return "high";
+  }
+  return "medium";
+}
+
 function isNativeInteractive(element) {
   const tag = element.tagName.toLowerCase();
   if (tag === "a") {
@@ -227,6 +289,8 @@ function candidateFromElement(element, sourceElement, maxTextChars, terms) {
   const text = sourceText || elementText(element);
   const isEditable = isEditableElement(element);
   const isClickable = isClickableElement(element);
+  const rect = rectData(element);
+  const candidateInViewport = inViewport(element);
 
   return {
     tag,
@@ -252,7 +316,11 @@ function candidateFromElement(element, sourceElement, maxTextChars, terms) {
     is_editable: isEditable,
     query_match_score: queryMatchScore(element, sourceElement, terms, maxTextChars),
     disabled: Boolean(element.disabled) || element.getAttribute("aria-disabled") === "true",
-    visible: isVisible(element),
+    visible: isVisible(element) && candidateInViewport,
+    in_viewport: candidateInViewport,
+    center_occluded: centerOccluded(element),
+    rect,
+    selector_stability: selectorStability(selector),
     nearby_text: nearbyText(element, sourceElement, maxTextChars),
   };
 }

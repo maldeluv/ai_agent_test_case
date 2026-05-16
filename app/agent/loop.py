@@ -47,12 +47,14 @@ class MainAgentLoop:
         browser: BrowserSession,
         registry: ToolRegistry,
         client: AgentModelClient | None = None,
+        safety_guard: SafetyGuard | None = None,
         console: Console | None = None,
     ) -> None:
         self.settings = settings
         self.browser = browser
         self.registry = registry
         self.client = client or create_llm_client(settings)
+        self.safety_guard = safety_guard
         self.console = console or get_console()
         self._logger = get_logger(__name__)
 
@@ -64,7 +66,7 @@ class MainAgentLoop:
             self.registry,
             self.settings.llm_provider,
         )
-        safety_guard = SafetyGuard(console=self.console)
+        safety_guard = self.safety_guard or SafetyGuard(console=self.console)
         context = ToolContext(
             browser=self.browser,
             safety_guard=safety_guard,
@@ -120,7 +122,6 @@ class MainAgentLoop:
                 )
 
             tool_result_blocks = []
-            final_result: AgentRunResult | None = None
 
             for tool_use in tool_uses:
                 tool_use_id = get_tool_use_id(tool_use)
@@ -146,7 +147,7 @@ class MainAgentLoop:
                 )
 
                 if tool_name == "finish_task" and result.ok:
-                    final_result = AgentRunResult(
+                    return AgentRunResult(
                         status=result.data.get("status", "success"),
                         summary=result.data.get("summary", result.message),
                         steps_used=step,
@@ -168,7 +169,6 @@ class MainAgentLoop:
                         steps_used=step,
                         debug_context=state.to_session_debug_context(self.settings),
                     )
-
             previous_assistant_blocks = assistant_blocks
             previous_tool_result_blocks = [
                 *tool_result_blocks,
@@ -177,9 +177,6 @@ class MainAgentLoop:
                     "text": state.to_context_text(self.settings),
                 },
             ]
-
-            if final_result is not None:
-                return final_result
 
         return AgentRunResult(
             status="failed",

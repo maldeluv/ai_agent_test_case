@@ -28,12 +28,14 @@ class Settings(BaseSettings):
     tool_result_max_chars: int = Field(default=6000, ge=500, le=50000)
     short_visible_text_chars: int = Field(default=2000, ge=200, le=10000)
     browser_action_timeout_ms: int = Field(default=7000, ge=500, le=60000)
+    browser_new_tab_timeout_ms: int = Field(default=4000, ge=0, le=60000)
     browser_ui_settle_ms: int = Field(default=700, ge=0, le=10000)
     browser_load_state_timeout_ms: int = Field(default=1500, ge=100, le=15000)
     llm_provider: Literal["openai", "anthropic"] = "openai"
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-5.4-mini"
     openai_max_output_tokens: int = Field(default=4096, ge=256, le=128000)
+    openai_use_previous_response_id: bool = False
     anthropic_api_key: SecretStr | None = None
     anthropic_model: str = "claude-sonnet-4-20250514"
     anthropic_max_tokens: int = Field(default=4096, ge=256, le=64000)

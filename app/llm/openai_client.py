@@ -17,6 +17,7 @@ class OpenAIClient:
         self.model = settings.openai_model
         self.max_output_tokens = settings.openai_max_output_tokens
         self._client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+        self._use_previous_response_id = settings.openai_use_previous_response_id
         self._previous_response_id: str | None = None
 
     async def create_message(
@@ -36,14 +37,37 @@ class OpenAIClient:
         if tools:
             request["tools"] = tools
             request["parallel_tool_calls"] = False
-        if self._previous_response_id is not None:
+        if self._use_previous_response_id and self._previous_response_id is not None:
             request["previous_response_id"] = self._previous_response_id
 
         response = await self._client.responses.create(**request)
-        self._previous_response_id = response.id
+        if self._use_previous_response_id:
+            self._previous_response_id = response.id
         return SimpleNamespace(content=self._content_blocks_from_response(response))
 
     def _build_input_items(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        use_previous_response_id = getattr(
+            self,
+            "_use_previous_response_id",
+            getattr(self, "_previous_response_id", None) is not None,
+        )
+        if use_previous_response_id:
+            return self._build_input_items_for_previous_response(messages)
+
+        input_items: list[dict[str, Any]] = []
+        for message in messages:
+            role = str(message.get("role", "user"))
+            content = message.get("content", "")
+            if isinstance(content, list):
+                input_items.extend(self._content_list_to_input_items(role, content))
+            else:
+                input_items.append({"role": role, "content": str(content)})
+        return input_items or [{"role": "user", "content": ""}]
+
+    def _build_input_items_for_previous_response(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         if self._previous_response_id is None:
             first_message = messages[0] if messages else {"role": "user", "content": ""}
             return [
@@ -77,6 +101,51 @@ class OpenAIClient:
                         "content": str(block.get("text", "")),
                     }
                 )
+        return input_items
+
+    def _content_list_to_input_items(
+        self,
+        role: str,
+        content: list[Any],
+    ) -> list[dict[str, Any]]:
+        input_items: list[dict[str, Any]] = []
+        text_chunks: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type == "tool_result":
+                input_items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": block["tool_use_id"],
+                        "output": str(block.get("content", "")),
+                    }
+                )
+            elif block_type == "tool_use":
+                input_items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": str(block.get("id", "")),
+                        "name": str(block.get("name", "")),
+                        "arguments": json.dumps(
+                            block.get("input", {}),
+                            ensure_ascii=False,
+                        ),
+                    }
+                )
+            elif block_type == "text":
+                text = str(block.get("text", ""))
+                if text:
+                    text_chunks.append(text)
+
+        if text_chunks:
+            input_items.append(
+                {
+                    "role": role if role in {"user", "assistant", "system"} else "user",
+                    "content": "\n".join(text_chunks),
+                }
+            )
         return input_items
 
     def _content_blocks_from_response(self, response: Any) -> list[dict[str, Any]]:

@@ -26,6 +26,23 @@ class FakeDomClient:
         return SimpleNamespace(content=[{"type": "text", "text": self.text}])
 
 
+class SequenceDomClient:
+    def __init__(self, texts: list[str]) -> None:
+        self.texts = texts
+        self.calls: list[dict[str, Any]] = []
+
+    async def create_message(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> Any:
+        self.calls.append({"system": system, "messages": messages, "tools": tools})
+        index = min(len(self.calls) - 1, len(self.texts) - 1)
+        return SimpleNamespace(content=[{"type": "text", "text": self.texts[index]}])
+
+
 def candidate(selector: str = "input[name=\"q\"]") -> DomCandidate:
     return DomCandidate(
         tag="input",
@@ -133,3 +150,44 @@ async def test_dom_agent_limits_candidate_payload_size() -> None:
     payload = client.calls[0]["messages"][0]["content"]
     assert len(payload) <= settings.dom_query_payload_max_chars
     assert "x" * 100 not in payload
+
+
+@pytest.mark.asyncio
+async def test_dom_agent_repairs_malformed_json_once() -> None:
+    client = SequenceDomClient(
+        [
+            "not json",
+            """
+            {
+              "found": true,
+              "answer": "Search field found",
+              "matches": [
+                {
+                  "selector": "input[name=\\"q\\"]",
+                  "description": "Main search input",
+                  "confidence": 0.91
+                }
+              ]
+            }
+            """,
+        ]
+    )
+    agent = DOMSubAgent(Settings(), client=client)
+
+    result = await agent.analyze(query="find search input", candidates=[candidate()])
+
+    assert result.found is True
+    assert result.matches[0].selector == 'input[name="q"]'
+    assert len(client.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_dom_agent_returns_structured_failure_after_bad_repair() -> None:
+    client = SequenceDomClient(["not json", "still not json"])
+    agent = DOMSubAgent(Settings(), client=client)
+
+    result = await agent.analyze(query="find search input", candidates=[candidate()])
+
+    assert result.found is False
+    assert result.error_code == "invalid_subagent_json"
+    assert result.raw_preview
